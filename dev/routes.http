@@ -1,0 +1,91 @@
+##############################
+# Constants
+
+:host = http://localhost:8080
+
+#
+:content = <<
+Content-Type: application/json
+#
+
+# Adam!
+:a = <<
+:content
+dn: Adam!
+#
+
+# Bob
+:b = <<
+:content
+dn: Bob
+#
+
+##############################
+# Person
+
+# CREATE
+POST :host/person
+:a
+{
+"name": "Bob",
+"isAdmin": false
+}
+
+# READ
+GET :host/person/1
+:a
+
+# UPDATE
+PUT :host/person/2
+:a
+{
+"name": "Bob",
+"isAdmin": false
+
+}
+
+# DELETE
+DELETE :host
+
+# LIST ALL - doesnt exist yet
+GET :host/person
+:a
+
+
+##############################
+# Post
+
+# CREATE
+POST :host/post
+:a
+{
+"title": "first",
+"content": "yay"
+}
+
+# READ
+GET :host/post/3
+:a
+
+# UPDATE
+PUT :host/post/1
+:b
+{
+"title": "HACKED",
+"content": "HACKED"
+}
+
+
+
+route ::  ExceptT ServantErr IO a
+route = runget dn mk = runQuery $ do
+        ...
+        auth -- can throw err
+        mgetOr404 -- can throw err
+
+
+##############################
+# Problem
+
+#
+GET :host/problem
