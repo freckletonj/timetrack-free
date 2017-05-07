@@ -15,48 +15,54 @@
 
 module Api where
 
-import           Control.Lens
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Control.Monad.Logger
+import Control.Lens
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Logger
 import qualified Control.Monad.Operational  as O
-import           Control.Monad.Operational  hiding (view)
-import           Control.Monad.Reader       (ask)
-
-import           Control.Monad.Trans.Except
-import           Data.Aeson
-
-import qualified Data.Foldable              as F
-
-import           Database.Persist.Sqlite
-import           Database.Persist.TH
-import           Data.Text.Lens
-import           Data.Text                  (Text)
-import Data.String.Conversions (cs)
-
-import qualified Network.Wai.Handler.Warp
-import           Servant hiding (throw)
-
-import Debug.Trace 
-
-
+import Control.Monad.Operational  hiding (view)
+import Control.Monad.Reader       (ask)
+import Control.Monad.Trans.Except
 import DSL
-import Type
+import Data.Aeson
+import qualified Data.Foldable as F
+import Data.String.Conversions (cs)
+import Data.Text (Text)
+import Data.Text.Lens
+import Database.Persist.Sqlite
+import Database.Persist.TH
+import Debug.Trace 
+import qualified Network.Wai.Handler.Warp
 import PersistentType
+import Servant hiding (throw)
+import Type
+
+import qualified Data.Configurator as C
+import qualified Data.Configurator.Types as CT
+import qualified Data.HashMap.Lazy as HM
+
+
 {-
 
+# TODO
 
-TODO
+## Errors
 - return appropriate errors
-- credentials add appropriate dn?
 
-- goog/facebook auth? <- lowest risk/compliance + easy for customers?
-- plus sessions and tokens
-
+## Transactions
 - http://stackoverflow.com/questions/31359894/catching-an-exception-from-rundb
 - transaction errors log + return (exception-lifted?)
 - runSqlConn(?) keeps things in a transaction
 - transactionSave / transactionUndo?
+
+## Configuration
+
+## Auth
+- access control
+- credentials add appropriate dn?
+- goog/facebook auth? <- lowest risk/compliance + easy for customers?
+- sessions and tokens
+
 
 -}
 
@@ -72,55 +78,8 @@ type DN = Header "dn" Text
 
 
 
-
 --------------------------------------------------
--- Web Application DSL
-
-type WebService = Program WebAction
-type PC val = (PersistEntityBackend val ~ SqlBackend, PersistEntity val)
-data WebAction a where
-    Throw :: ServantErr               -> WebAction a
-    Get   :: PC val => Key val        -> WebAction (Maybe val)
-    Del   :: PC val => Key val        -> WebAction ()
-    GetBy :: PC val => Unique val     -> WebAction (Maybe (Entity val))
-    New   :: PC val =>            val -> WebAction (Key val)
-    Upd   :: PC val => Key val -> val -> WebAction ()
-
--- throws an error
-throw :: ServantErr -> WebService a
-throw = singleton . Throw
-
--- dual of `persistent`'s `get`
-mget :: PC val => Key val -> WebService (Maybe val)
-mget = singleton . Get
-
--- dual of `persistent`'s `getBy`
-mgetBy :: PC val => Unique val ->  WebService (Maybe (Entity val))
-mgetBy = singleton . GetBy
-
--- dual of `persistent`'s `insert`
-mnew :: PC val => val ->  WebService (Key val)
-mnew = singleton . New
-
--- dual of `persistent`'s `update`
-mupd :: PC val => Key val -> val -> WebService ()
-mupd k v = singleton (Upd k v)
-
--- dual of `persistent`'s `delete`
-mdel :: PC val => Key val -> WebService ()
-mdel = singleton . Del
-
--- like `mget` but throws a 404 if it could not find the corresponding record
-mgetOr404 :: PC val => Key val -> WebService val
-mgetOr404 = mget >=> maybe (throw err404) return
-
--- like `mgetBy` but throws a 404 if it could not find the corresponding record
-mgetByOr404 :: PC val => Unique val -> WebService (Entity val)
-mgetByOr404 = mgetBy >=> maybe (throw err404) return
-
-
---------------------------------------------------
--- Evaluating the Permissions Checking DSL
+-- Interpreting the Permissions Checking DSL
 
 -- Given the current user, runs a `PermProgram` in the `WebService` monad.
 checkPerms :: Entity Person -> PermProgram a -> WebService a
@@ -140,7 +99,7 @@ checkPerms ent cnd = eval (O.view cnd)
 
 
 --------------------------------------------------
--- Evaluating the Web DSL
+-- Interpreting the Web DSL
 
 type ServantIO a = SqlPersistT (LoggingT (ExceptT ServantErr IO)) a
 
@@ -172,6 +131,7 @@ runM x f = case x of
     Upd k v  -> replace k v >>= tsf
   where
       tsf = runServant . f
+
 
 --------------------------------------------------
 -- Implementing the API
@@ -262,7 +222,7 @@ type MyApi = "person" :> CRUD Person
 myApi :: Proxy MyApi
 myApi = Proxy
 
-server :: ConnectionPool -> Server MyApi
+server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
 server pool =
       runCrud pool adminOnly noCreateRightAdjustment Nothing
  :<|> defaultCrud blogPostRight PostRights Nothing
@@ -271,20 +231,30 @@ server pool =
      editRights c cid = rw (c cid) .|| isAdmin
      delRights c cid = owner (c cid) .|| isAdmin
      defaultPermissions c =
-          PermsFor always
-                  (const always)
-                  (editRights c)
-                  (delRights c)
+          PermsFor always -- create
+                  (const always) -- read
+                  (editRights c) -- update
+                  (delRights c) -- delete
      defaultCrud c r d = runCrud pool (defaultPermissions c)
                                  (Just r) d
 
 
-sqlitePath = "db.sql"
+--------------------------------------------------
+-- Main
 
 main :: IO ()
 main = do
+
+  -- Config
+  cfg <- C.load [C.Required "resource/config.cfg"]
+  dbPath <- C.require cfg "sqlite.path"
+
+
+  -- Resources
   pool <- runStderrLoggingT $ do
-      p <- createSqlitePool sqlitePath 1
-      runSqlPool (runMigration migrateAll) p
-      return p
+    p <- createSqlitePool dbPath 1
+    runSqlPool (runMigration migrateAll) p
+    return p
+
+  -- Run
   Network.Wai.Handler.Warp.run 8080 (serve myApi (server pool))
