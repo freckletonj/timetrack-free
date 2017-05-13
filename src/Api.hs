@@ -22,7 +22,10 @@ import Control.Monad.Logger
 import qualified Control.Monad.Operational  as O
 import Control.Monad.Operational  hiding (view)
 import Control.Monad.Reader       (ask)
+import Control.Monad.Writer
 import Control.Monad.Trans.Except
+import Control.Monad.Except
+
 import DSL
 import Data.Aeson
 import qualified Data.Foldable as F
@@ -35,6 +38,7 @@ import Debug.Trace
 import qualified Network.Wai.Handler.Warp
 import PersistentType
 import Servant hiding (throw)
+import Control.Exception.Safe hiding (throw)
 import Type
 
 import qualified Data.Configurator as C
@@ -48,6 +52,10 @@ import qualified Data.HashMap.Lazy as HM
 
 ## Errors
 - return appropriate errors
+- safe-exceptions
+- ExceptT
+- ServantError
+- 
 
 ## Transactions
 - http://stackoverflow.com/questions/31359894/catching-an-exception-from-rundb
@@ -55,14 +63,11 @@ import qualified Data.HashMap.Lazy as HM
 - runSqlConn(?) keeps things in a transaction
 - transactionSave / transactionUndo?
 
-## Configuration
-
 ## Auth
 - access control
 - credentials add appropriate dn?
 - goog/facebook auth? <- lowest risk/compliance + easy for customers?
 - sessions and tokens
-
 
 -}
 
@@ -81,13 +86,13 @@ type DN = Header "dn" Text
 --------------------------------------------------
 -- Interpreting the Permissions Checking DSL
 
--- Given the current user, runs a `PermProgram` in the `WebService` monad.
-checkPerms :: Entity Person -> PermProgram a -> WebService a
+-- Given the current user, runs a `PermProgram` in the `PersistenceService` monad.
+checkPerms :: Entity Person -> PermProgram a -> PersistenceService a
 checkPerms ent cnd = eval (O.view cnd)
     where
         usr = entityVal ent
         userkey = entityKey ent
-        eval :: ProgramView PermCheck a -> WebService a
+        eval :: ProgramView PermCheck a -> PersistenceService a
         eval (Return a) = return a
         eval (IsAdmin :>>= nxt) =
               checkPerms ent (nxt (_personIsAdmin usr))
@@ -99,12 +104,12 @@ checkPerms ent cnd = eval (O.view cnd)
 
 
 --------------------------------------------------
--- Interpreting the Web DSL
+-- Interpreting the Persistence DSL
 
 type ServantIO a = SqlPersistT (LoggingT (ExceptT ServantErr IO)) a
 
-runServant :: WebService a -> ServantIO a
-runServant ws = case O.view ws of
+runPersistence :: PersistenceService a -> ServantIO a
+runPersistence ps = case O.view ps of
                   Return a -> return a
                   a :>>= f -> runM a f
 
@@ -113,7 +118,7 @@ runServant ws = case O.view ws of
 -- conn <- ask
 -- liftIO $ connRollback conn (getStmtConn conn)
 
-runM :: WebAction a -> (a -> WebService b) -> ServantIO b
+runM :: PersistenceAction a -> (a -> PersistenceService b) -> ServantIO b
 runM x f = case x of
     Throw rr@(ServantErr code reason body headers) -> do
       conn <- ask
@@ -130,7 +135,32 @@ runM x f = case x of
     GetBy u  -> getBy u     >>= tsf
     Upd k v  -> replace k v >>= tsf
   where
-      tsf = runServant . f
+      tsf = runPersistence . f
+
+
+--------------------------------------------------
+-- Interpreting Persistence DSL for testing
+
+newtype PersistenceLogIO a = PersistenceLogIO {
+  runPersistenceLogIO :: WriterT [String] (ExceptT ServantErr IO) a
+  } deriving (Functor, Applicative, Monad, MonadWriter [String], MonadError ServantErr)
+
+runWebLog :: PersistenceService a -> PersistenceLogIO a
+runWebLog ps = case O.view ps of
+                 Return a -> return a
+                 a :>>= f -> runL a f
+
+runL :: PersistenceAction a -> (a -> PersistenceService b) -> PersistenceLogIO b
+runL x f = case x of
+  Throw e -> do
+    tell ["error"]
+    throwError e
+  -- Get k -> do
+  --   tell ["get"]
+  --   return $ Just 1
+  -- where
+  --   tsf = runWebLog . f
+
 
 
 --------------------------------------------------
@@ -145,12 +175,25 @@ data PermsFor a = PermsFor { _newPerms :: PermProgram Bool
 adminOnly :: PermsFor a
 adminOnly = PermsFor isAdmin (const isAdmin) (const isAdmin) (const isAdmin)
 
+-- | Extra actions after creation :: Maybe XRights
+type AfterCreation a b = Maybe (Key Person -> Key a -> AccessType -> b)
+
+-- |Extra actions after deletion
+type AfterDeletion a = Maybe (Key a -> PersistenceService ())
+
+-- | Create an AccessType for 1. a record on 2. a key within 3. a rights-tracking Entity
+createRight :: (PersistEntityBackend val ~ SqlBackend, PersistEntity val) =>
+     Entity record                             -- ex: Key Person
+     -> t                                      -- ex: Key BlogPost
+     -> (Key record -> t -> AccessType -> val) -- ex: PostRights
+     -> PersistenceService (Key val)
+createRight usr k constructor =  mnew (constructor (entityKey usr) k Owner)
+
 runCrud :: (PersistEntity a, ToBackendKey SqlBackend a, PC b)
         => ConnectionPool -- ^ Connection pool
         -> PermsFor a -- ^ Permission checking record
-        -> Maybe (Key Person -> Key a -> AccessType -> b)
-           -- ^ Extra actions after creation
-        -> Maybe (Key a -> WebService ()) -- ^ Extra actions after deletion
+        -> AfterCreation a b
+        -> AfterDeletion a
         -> (Maybe Text ->
             (a -> ExceptT ServantErr IO (MKey a))
             :<|> ((MKey a      -> ExceptT ServantErr IO a)
@@ -172,7 +215,8 @@ runCrud pool (PermsFor pnew pget pupd pdel) rightConstructor predelete =
         runnew dn val = runQuery $ do
             usr <- auth dn pnew
             k <- mnew val
-            F.mapM_ (\c -> mnew (c (entityKey usr) k Owner)) rightConstructor
+            -- monadic map over the traversable Maybe
+            F.mapM_ (createRight usr k) rightConstructor
             return (k ^. from _MKey)
         runget dn mk = runQuery $ do
             let k = mk ^. _MKey
@@ -187,8 +231,8 @@ runCrud pool (PermsFor pnew pget pupd pdel) rightConstructor predelete =
             void $ auth dn (pdel k)
             F.mapM_ ($ k) predelete
             mdel k
-        runQuery :: WebService a -> ExceptT ServantErr IO a
-        runQuery ws = runStderrLoggingT $ runSqlPool (runServant ws) pool
+        runQuery :: PersistenceService a -> ExceptT ServantErr IO a
+        runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
 
 -- A default action for when you need not run additional actions after creation
 noCreateRightAdjustment :: Maybe (Key Person -> Key a -> AccessType -> PostRights)
@@ -209,8 +253,9 @@ problem pool = runQuery $ do
 
   return $ [k1, k2, k3 ]
       where
-        runQuery :: WebService a -> ExceptT ServantErr IO a
-        runQuery ws = runStderrLoggingT $ runSqlPool (runServant ws) pool
+        runQuery :: PersistenceService a -> ExceptT ServantErr IO a
+        runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
+
 
 --------------------------------------------------
 -- Serving the API

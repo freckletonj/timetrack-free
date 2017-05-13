@@ -21,7 +21,6 @@ library
                      , conduit
                      , configurator
                      , containers
-                     -- , either
                      , http-conduit
                      , http-media
                      , http-api-data
@@ -35,12 +34,12 @@ library
                      , persistent-postgresql
                      , persistent-sqlite
                      , persistent-template
-                     -- , safecopy
                      , safe-exceptions
                      , servant
                      , servant-server
                      , string-conversions
                      , text
+                     , transformers
                      , unordered-containers
                      , warp
 
