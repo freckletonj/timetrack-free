@@ -28,6 +28,7 @@ import Web.HttpApiData
 import Data.Text
 import qualified Data.Text as T
 import Control.Arrow
+import Data.UUID
 
 import Type
 
@@ -38,6 +39,19 @@ import Type
 
 share [ mkPersist sqlSettings { mpsGenerateLenses = True } , mkMigrate "migrateAll"]
       [persistLowerCase|
+User json
+  Id UUID sqltype=uuid default=uuid_generate_v4()
+  email Text
+
+Clocks
+  userId User
+  in CUTCTime
+  out CUTCTime
+
+Session
+  userId User
+  token String
+
 Person json
     name Text
     isAdmin Bool

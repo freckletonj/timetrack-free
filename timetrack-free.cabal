@@ -30,6 +30,7 @@ library
                      , mtl
                      , transformers
                      , operational
+                     , path-pieces
                      , persistent
                      , persistent-postgresql
                      , persistent-sqlite
@@ -39,7 +40,9 @@ library
                      , servant-server
                      , string-conversions
                      , text
+                     , time
                      , transformers
+                     , uuid
                      , unordered-containers
                      , warp
 

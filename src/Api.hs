@@ -32,7 +32,7 @@ import qualified Data.Foldable as F
 import Data.String.Conversions (cs)
 import Data.Text (Text)
 import Data.Text.Lens
-import Database.Persist.Sqlite
+import Database.Persist.Postgresql
 import Database.Persist.TH
 import Debug.Trace 
 import qualified Network.Wai.Handler.Warp
@@ -141,25 +141,23 @@ runM x f = case x of
 --------------------------------------------------
 -- Interpreting Persistence DSL for testing
 
-newtype PersistenceLogIO a = PersistenceLogIO {
-  runPersistenceLogIO :: WriterT [String] (ExceptT ServantErr IO) a
-  } deriving (Functor, Applicative, Monad, MonadWriter [String], MonadError ServantErr)
+-- newtype PersistenceLogIO a = PersistenceLogIO {
+--   runPersistenceLogIO :: WriterT [String] (ExceptT ServantErr IO) a
+--   } deriving (Functor, Applicative, Monad, MonadWriter [String], MonadError ServantErr)
 
-runWebLog :: PersistenceService a -> PersistenceLogIO a
-runWebLog ps = case O.view ps of
-                 Return a -> return a
-                 a :>>= f -> runL a f
+-- runWebLog :: PersistenceService a -> PersistenceLogIO a
+-- runWebLog ps = case O.view ps of
+--                  Return a -> return a
+--                  a :>>= f -> runL a f
 
-runL :: PersistenceAction a -> (a -> PersistenceService b) -> PersistenceLogIO b
-runL x f = case x of
-  Throw e -> do
-    tell ["error"]
-    throwError e
-  -- Get k -> do
-  --   tell ["get"]
-  --   return $ Just 1
-  -- where
-  --   tsf = runWebLog . f
+-- runL :: PersistenceAction a -> (a -> PersistenceService b) -> PersistenceLogIO b
+-- runL x f = case x of
+--   Throw e -> do
+--     tell ["error"]
+--     throwError e
+--   Get k -> tell ["get"] >> tsf Nothing
+--   where
+--     tsf = runWebLog . f
 
 
 
@@ -285,6 +283,38 @@ server pool =
 
 
 --------------------------------------------------
+-- Database
+
+data Env = Development
+         | Testing
+         | Production
+         deriving (Read, Eq, Show)
+
+connStr :: MonadIO m => CT.Config -> m ConnectionString
+connStr cfg = do
+  host <- f "postgres.host"
+  dbname <- f "postgres.dbname"
+  port <- f "postgres.port"
+  user <- f "postgres.user"
+  pass <- f "postgres.pass"
+  return . cs $ concat ["host=", host
+                       , " dbname=", dbname
+                       , " port=", port
+                       , " user=", user
+                       , " password=", pass]
+    where
+      f = liftIO . C.require cfg
+
+makePool :: Env -> CT.Config -> IO ConnectionPool
+makePool Development cfg = do
+  c <- (connStr cfg)
+  runStdoutLoggingT $ createPostgresqlPool c 2
+  
+makePool Testing     cfg = undefined
+makePool Production  cfg = undefined
+
+
+--------------------------------------------------
 -- Main
 
 main :: IO ()
@@ -292,14 +322,13 @@ main = do
 
   -- Config
   cfg <- C.load [C.Required "resource/config.cfg"]
-  dbPath <- C.require cfg "sqlite.path"
 
+  env <- C.require cfg "environment"
 
   -- Resources
-  pool <- runStderrLoggingT $ do
-    p <- createSqlitePool dbPath 1
-    runSqlPool (runMigration migrateAll) p
-    return p
+  pool <- makePool (read env) cfg
+  runSqlPool (runMigration migrateAll) pool
+  
 
   -- Run
   Network.Wai.Handler.Warp.run 8080 (serve myApi (server pool))
