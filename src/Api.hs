@@ -84,26 +84,6 @@ type DN = Header "dn" Text
 
 
 --------------------------------------------------
--- Interpreting the Permissions Checking DSL
-
--- Given the current user, runs a `PermProgram` in the `PersistenceService` monad.
-checkPerms :: Entity Person -> PermProgram a -> PersistenceService a
-checkPerms ent cnd = eval (O.view cnd)
-    where
-        usr = entityVal ent
-        userkey = entityKey ent
-        eval :: ProgramView PermCheck a -> PersistenceService a
-        eval (Return a) = return a
-        eval (IsAdmin :>>= nxt) =
-              checkPerms ent (nxt (_personIsAdmin usr))
-        eval (BlogPostRight k :>>= nxt) =
-              mgetBy (UniqueRight userkey k)
-                  >>= checkPerms ent
-                    . nxt
-                    . maybe NoAccess (_postRightsAccess . entityVal)
-
-
---------------------------------------------------
 -- Interpreting the Persistence DSL
 
 type ServantIO a = SqlPersistT (LoggingT (ExceptT ServantErr IO)) a
@@ -164,21 +144,6 @@ runM x f = case x of
 --------------------------------------------------
 -- Implementing the API
 
-data PermsFor a = PermsFor { _newPerms :: PermProgram Bool
-                           , _getPerms :: Key a -> PermProgram Bool
-                           , _updPerms :: Key a -> PermProgram Bool
-                           , _delPerms :: Key a -> PermProgram Bool
-                           }
-
-adminOnly :: PermsFor a
-adminOnly = PermsFor isAdmin (const isAdmin) (const isAdmin) (const isAdmin)
-
--- | Extra actions after creation :: Maybe XRights
-type AfterCreation a b = Maybe (Key Person -> Key a -> AccessType -> b)
-
--- |Extra actions after deletion
-type AfterDeletion a = Maybe (Key a -> PersistenceService ())
-
 -- | Create an AccessType for 1. a record on 2. a key within 3. a rights-tracking Entity
 createRight :: (PersistEntityBackend val ~ SqlBackend, PersistEntity val) =>
      Entity record                             -- ex: Key Person
@@ -187,18 +152,15 @@ createRight :: (PersistEntityBackend val ~ SqlBackend, PersistEntity val) =>
      -> PersistenceService (Key val)
 createRight usr k constructor =  mnew (constructor (entityKey usr) k Owner)
 
-runCrud :: (PersistEntity a, ToBackendKey SqlBackend a, PC b)
+runCrud :: (PersistEntity a, ToBackendKey SqlBackend a) -- PC b
         => ConnectionPool -- ^ Connection pool
-        -> PermsFor a -- ^ Permission checking record
-        -> AfterCreation a b
-        -> AfterDeletion a
         -> (Maybe Text ->
             (a -> ExceptT ServantErr IO (MKey a))
             :<|> ((MKey a      -> ExceptT ServantErr IO a)
             :<|> ((MKey a -> a -> ExceptT ServantErr IO ())
             :<|> (MKey a      -> ExceptT ServantErr IO ())))
            )
-runCrud pool (PermsFor pnew pget pupd pdel) rightConstructor predelete =
+runCrud pool =
   (\dn -> runnew dn
           :<|> runget dn
           :<|> runupd dn
@@ -206,51 +168,29 @@ runCrud pool (PermsFor pnew pget pupd pdel) rightConstructor predelete =
     where
         auth Nothing _ = throw err401
         auth (Just dn) perm = do
-            user <- mgetBy (UniqueName dn) >>= maybe (throw err403) return
-            check <- checkPerms user perm
-            unless check (throw err403)
+            user <- mgetBy dn >>= maybe (throw err403) return
+            -- check <- checkPerms user perm
+            -- unless check (throw err403)
             return user
         runnew dn val = runQuery $ do
-            usr <- auth dn pnew
+            -- usr <- auth dn pnew
             k <- mnew val
             -- monadic map over the traversable Maybe
-            F.mapM_ (createRight usr k) rightConstructor
+            -- F.mapM_ (createRight usr k) rightConstructor
             return (k ^. from _MKey)
         runget dn mk = runQuery $ do
             let k = mk ^. _MKey
-            void $ auth dn (pget k) -- void :: Functor f => f a -> f ()
+            -- void $ auth dn (pget k) -- void :: Functor f => f a -> f ()
             mgetOr404 k
         runupd dn mk val = runQuery $ do
             let k = mk ^. _MKey
-            void $ auth dn (pupd k)
+            -- void $ auth dn (pupd k)
             mupd k val
         rundel dn mk = runQuery $ do
             let k = mk ^. _MKey
-            void $ auth dn (pdel k)
-            F.mapM_ ($ k) predelete
+            -- void $ auth dn (pdel k)
+            -- F.mapM_ ($ k) predelete
             mdel k
-        runQuery :: PersistenceService a -> ExceptT ServantErr IO a
-        runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
-
--- A default action for when you need not run additional actions after creation
-noCreateRightAdjustment :: Maybe (Key Person -> Key a -> AccessType -> PostRights)
-noCreateRightAdjustment = Nothing
-
-
---------------------------------------------------
--- Problem
-
-type Problem = Get '[JSON] [Key BlogPost]
-
-problem :: ConnectionPool -> ExceptT ServantErr IO [Key BlogPost]
-problem pool = runQuery $ do
-  k1 <- mnew (BlogPost "666" "AAA")
-  k2 <- mnew (BlogPost "666" (cs . show $ k1))
-  throw err303
-  k3 <- mnew (BlogPost "666" (cs . show $ k2))
-
-  return $ [k1, k2, k3 ]
-      where
         runQuery :: PersistenceService a -> ExceptT ServantErr IO a
         runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
 
@@ -258,28 +198,19 @@ problem pool = runQuery $ do
 --------------------------------------------------
 -- Serving the API
 
-type MyApi = "person" :> CRUD Person
-        :<|> "post"   :> CRUD BlogPost
-        :<|> "problem" :> Problem
+type MyApi = "user" :> CRUD User
+        :<|> "clock"   :> CRUD Clock
+        :<|> "session" :> CRUD Session
+        :<|> "ghcredential" :> CRUD GHCredential
 
 myApi :: Proxy MyApi
 myApi = Proxy
 
 server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
-server pool =
-      runCrud pool adminOnly noCreateRightAdjustment Nothing
- :<|> defaultCrud blogPostRight PostRights Nothing
- :<|> problem pool
-   where
-     editRights c cid = rw (c cid) .|| isAdmin
-     delRights c cid = owner (c cid) .|| isAdmin
-     defaultPermissions c =
-          PermsFor always -- create
-                  (const always) -- read
-                  (editRights c) -- update
-                  (delRights c) -- delete
-     defaultCrud c r d = runCrud pool (defaultPermissions c)
-                                 (Just r) d
+server pool = runCrud pool
+              :<|> runCrud pool
+              :<|> runCrud pool
+              :<|> runCrud pool
 
 
 --------------------------------------------------
@@ -322,11 +253,10 @@ main = do
 
   -- Config
   cfg <- C.load [C.Required "resource/config.cfg"]
-
   env <- C.require cfg "environment"
 
   -- Resources
-  pool <- makePool (read env) cfg
+  pool <- makePool (read env) cfg -- read == unsafe
   runSqlPool (runMigration migrateAll) pool
   
 

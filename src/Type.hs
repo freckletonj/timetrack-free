@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
--- {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 module Type where
@@ -18,7 +17,7 @@ import Text.Read (readMaybe)
 
 import Data.Time (UTCTime(..), picosecondsToDiffTime, diffTimeToPicoseconds)
 import Web.PathPieces (PathPiece(..))
---import Database.Persist.TH
+
 
 --------------------------------------------------
 -- AccessType

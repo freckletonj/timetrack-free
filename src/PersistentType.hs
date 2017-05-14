@@ -32,47 +32,40 @@ import Data.UUID
 
 import Type
 
-
-
 --------------------------------------------------
 -- Person
 
 share [ mkPersist sqlSettings { mpsGenerateLenses = True } , mkMigrate "migrateAll"]
       [persistLowerCase|
+
 User json
-  Id UUID sqltype=uuid default=uuid_generate_v4()
+  -- UUID sqltype=uuid default=uuid_generate_v4()
   email Text
+  deriving Show
 
-Clocks
+Clock json
   userId User
-  in CUTCTime
-  out CUTCTime
-
-Session
+  timein CUTCTime
+  timeout CUTCTime
+  deriving Show
+  
+Session json
   userId User
-  token String
+  token Text
+  deriving Show
+  
+GHCredential json
+  userId User
+  secret Text
 
-Person json
-    name Text
-    isAdmin Bool
-    UniqueName name
-    deriving Show
-BlogPost json
-    title Text
-    content Text
-    deriving Show
-PostRights json
-    person PersonId
-    post BlogPostId
-    access AccessType
-    UniqueRight person post
-    deriving Show
 |]
 
-
+        
 --------------------------------------------------
 -- MKey
-
+--
+--   iso to Persistent Key's, but you can write new instances
+        
 newtype MKey a = MKey { getMKey :: Int64 }
   deriving (Generic, FromJSON, ToJSON)
 
@@ -91,3 +84,4 @@ instance FromHttpApiData (MKey a) where
   parseUrlPiece = leftAppend ": UrlPiece" . parseMKey
   parseHeader = leftAppend ": Header" . parseMKey . cs
   parseQueryParam = leftAppend ":QueryParam" . parseMKey
+
