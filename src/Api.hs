@@ -40,6 +40,7 @@ import PersistentType
 import Servant hiding (throw)
 import Control.Exception.Safe hiding (throw)
 import Type
+import OAuth2
 
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
@@ -119,29 +120,6 @@ runM x f = case x of
 
 
 --------------------------------------------------
--- Interpreting Persistence DSL for testing
-
--- newtype PersistenceLogIO a = PersistenceLogIO {
---   runPersistenceLogIO :: WriterT [String] (ExceptT ServantErr IO) a
---   } deriving (Functor, Applicative, Monad, MonadWriter [String], MonadError ServantErr)
-
--- runWebLog :: PersistenceService a -> PersistenceLogIO a
--- runWebLog ps = case O.view ps of
---                  Return a -> return a
---                  a :>>= f -> runL a f
-
--- runL :: PersistenceAction a -> (a -> PersistenceService b) -> PersistenceLogIO b
--- runL x f = case x of
---   Throw e -> do
---     tell ["error"]
---     throwError e
---   Get k -> tell ["get"] >> tsf Nothing
---   where
---     tsf = runWebLog . f
-
-
-
---------------------------------------------------
 -- Implementing the API
 
 -- | Create an AccessType for 1. a record on 2. a key within 3. a rights-tracking Entity
@@ -207,10 +185,10 @@ myApi :: Proxy MyApi
 myApi = Proxy
 
 server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
-server pool = runCrud pool
-              :<|> runCrud pool
-              :<|> runCrud pool
-              :<|> runCrud pool
+server pool = runCrud pool -- user
+              :<|> runCrud pool -- clock
+              :<|> runCrud pool -- session
+              :<|> runCrud pool -- ghcredential
 
 
 --------------------------------------------------
