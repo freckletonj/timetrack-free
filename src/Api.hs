@@ -49,7 +49,7 @@ import qualified Data.HashMap.Lazy as HM
 
 {-
 
-# TODO
+# General Todo
 
 ## Errors
 - return appropriate errors
@@ -69,6 +69,22 @@ import qualified Data.HashMap.Lazy as HM
 - credentials add appropriate dn?
 - goog/facebook auth? <- lowest risk/compliance + easy for customers?
 - sessions and tokens
+
+--------------------------------------------------
+
+# Tickets
+
+[ ] 1 - user can log in through oauth and get a list of their repos
+
+[ ] 2 - user's oauth credentials are saved and api can use them ad lib
+on user's behalf
+
+[ ] 3 - users sign in's can be persisted and authenticated through
+sessions
+
+[ ] 4 - user workflows can be declared and tested automatically
+
+[ ] 5 - look into using an org-mode kanban for task tracking?
 
 -}
 
@@ -94,27 +110,17 @@ runPersistence ps = case O.view ps of
                   Return a -> return a
                   a :>>= f -> runM a f
 
--- connRollback conn (getStmtConn conn)
-
--- conn <- ask
--- liftIO $ connRollback conn (getStmtConn conn)
-
 runM :: PersistenceAction a -> (a -> PersistenceService b) -> ServantIO b
 runM x f = case x of
-    Throw rr@(ServantErr code reason body headers) -> do
-      conn <- ask
-      -- r <- liftIO . try $ ( connRollback conn (getStmtConn conn))
-      -- case r of
-      --   Left x -> throwError $ x { errBody = "couldn't rollback" }
-      --   Right x -> logOtherNS
-      --              "Rollback" LevelInfo "successfully rolled back"
-      logOtherNS "WS" LevelError (show (code,reason) ^. packed)
-      throwError rr
-    Get k    -> get k       >>= tsf
-    New v    -> insert v    >>= tsf
-    Del v    -> delete v    >>= tsf
-    GetBy u  -> getBy u     >>= tsf
-    Upd k v  -> replace k v >>= tsf
+  Throw rr@(ServantErr code reason body headers) -> do
+    conn <- ask
+    logOtherNS "WS" LevelError (show (code,reason) ^. packed)
+    throwError rr
+  Get k    -> get k       >>= tsf
+  New v    -> insert v    >>= tsf
+  Del v    -> delete v    >>= tsf
+  GetBy u  -> getBy u     >>= tsf
+  Upd k v  -> replace k v >>= tsf
   where
       tsf = runPersistence . f
 
@@ -146,29 +152,20 @@ runCrud pool =
     where
         auth Nothing _ = throw err401
         auth (Just dn) perm = do
-            user <- mgetBy dn >>= maybe (throw err403) return
-            -- check <- checkPerms user perm
-            -- unless check (throw err403)
-            return user
+          user <- mgetBy dn >>= maybe (throw err403) return
+          return user
         runnew dn val = runQuery $ do
-            -- usr <- auth dn pnew
-            k <- mnew val
-            -- monadic map over the traversable Maybe
-            -- F.mapM_ (createRight usr k) rightConstructor
-            return (k ^. from _MKey)
+          k <- mnew val
+          return (k ^. from _MKey)
         runget dn mk = runQuery $ do
-            let k = mk ^. _MKey
-            -- void $ auth dn (pget k) -- void :: Functor f => f a -> f ()
-            mgetOr404 k
+          let k = mk ^. _MKey
+          mgetOr404 k
         runupd dn mk val = runQuery $ do
-            let k = mk ^. _MKey
-            -- void $ auth dn (pupd k)
-            mupd k val
+          let k = mk ^. _MKey
+          mupd k val
         rundel dn mk = runQuery $ do
-            let k = mk ^. _MKey
-            -- void $ auth dn (pdel k)
-            -- F.mapM_ ($ k) predelete
-            mdel k
+          let k = mk ^. _MKey
+          mdel k
         runQuery :: PersistenceService a -> ExceptT ServantErr IO a
         runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
 
