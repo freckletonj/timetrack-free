@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-
 
 # Dev.Main
@@ -35,21 +36,31 @@ import PersistentType
 --------------------
 -- OAuth
 
-type Authorize = Get '[String] String
-type Callback = QueryParam "code" String :> Get '[String] NoContent
+type Authorize = Get '[JSON] String
+type Callback a = QueryParam "code" String :> Get '[JSON] a
 
 authorize :: OAuth2 -> Server Authorize
 authorize oa = return $ authUri oa
 
-callback :: Server Callback
-callback = (\code -> do
-               liftIO . putStrLn . show $ code
-               return NoContent)
+callback :: (Maybe String -> Handler a) -> Server (Callback a)
+callback f = (\code -> f code >>= return)
+
+--callbackFn :: (MonadIO m)=> OAuth2 -> Maybe String -> m String
+callbackFn :: OAuth2 -> Maybe String -> Handler String
+callbackFn oa mcode = do
+  liftIO . putStrLn $ "mcode: " ++ show mcode
+  case mcode of
+    Nothing -> return "no code"
+    Just code -> do
+      mtoken <- liftIO $ getAccessToken oa code
+      case mtoken of
+        Left error -> return error
+        Right token -> return token
 
 
 type OAuthAPI = "github" :> (
   "authorize" :> Authorize
-  :<|> "authorized" :> Callback)
+  :<|> "authorized" :> Callback String)
   
 api :: Proxy OAuthAPI
 api = Proxy
@@ -59,7 +70,9 @@ oauthServer :: OAuth2
 oauthServer
   githuboa
   = authorize githuboa
-    :<|> callback
+    :<|> callback (callbackFn githuboa)
+
+
 
 
 --------------------
