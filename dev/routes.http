@@ -80,7 +80,13 @@ PUT :host/post/1
 ##############################
 # GHCredential
 
+# Step 1. Get a link for authorizing at the service
 GET :host/github/authorize
+
+# Step 2. Accept a callback from the service
+GET :host/github/authorized?code=hooray!
+
+# Step 3. The token should have been persisted, use it!
 
 
 ##############################

@@ -16,8 +16,6 @@ import Data.Aeson.Types (parseEither, parse)
 import Data.String.Conversions (cs)
 import Data.List
 
---import Control.Applicative
---import Control.Arrow
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -79,11 +77,11 @@ tokenUri code oa = (oauthAccessTokenEndpoint oa)
 ----------
 
 -- | Step 1. Take user to the service's auth page
-getAuthorize :: OAuth2 -> Handler HTML
-getAuthorize oa = return $ concat ["<h1><a href=", authUri oa, ">", "Get Authorized!", "</a></h1>"]
+getAuthorize :: OAuth2 -> String
+getAuthorize oa = authUri oa
 
 -- | Step 2. Accept a temporary code from the service, and exchange
--- for an auth token
+-- for an auth token 
 getAuthorized :: OAuth2 -> Maybe String -> Handler HTML
 getAuthorized oa mcode = do
   case mcode of
@@ -96,7 +94,7 @@ getAuthorized oa mcode = do
                          , "<h3>" , t , "</h3>"]
 
 -- | Step 3. Exchange code for auth token
-getAccessToken :: OAuth2 -> String -> IO (Either String String) -- TODO: should be Either
+getAccessToken :: OAuth2 -> String -> IO (Either String String)
 getAccessToken oa code = do
   let endpoint = tokenUri code oa
   request' <- parseRequest endpoint
@@ -121,7 +119,6 @@ parseResAccessToken obj = case HM.lookup "access_token" obj of
                                           String x' -> Right . cs $ x'
                                           _ -> Left "access_token wasn't a string"
                                         _ -> Left "didn't have access_token"
-
 
 eitherLookup :: String -> Object -> Either String Value
 eitherLookup s obj = case HM.lookup (cs s) obj of

@@ -96,6 +96,8 @@ haskell, linter...
 [ ] 7 - implement testing.
 https://github.com/haskell-servant/servant-quickcheck?
 
+[ ] 8 - figure out the right way to document stuff, perhaps with
+motivation from Snoyman?
 -}
 
 

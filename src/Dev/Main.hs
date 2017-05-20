@@ -6,8 +6,12 @@
 
 -}
 
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-} -- type-level strings
+{-# LANGUAGE PolyKinds  #-} -- kind polymorphism
+{-# LANGUAGE TypeFamilies  #-} -- type-level functions
+{-# LANGUAGE FlexibleInstances  #-} -- type-class programming
+{-# LANGUAGE ScopedTypeVariables #-} -- type annotations to guide the type checker
+{-# LANGUAGE TypeOperators #-} -- type-level infix operators :<|>, :>
 {-# LANGUAGE OverloadedStrings #-}
 
 module Dev.Main where
@@ -31,17 +35,31 @@ import PersistentType
 --------------------
 -- OAuth
 
-type OAuthAPI = "github" :> AuthAPI
-           :<|> "bitbucket" :> AuthAPI
+type Authorize = Get '[String] String
+type Callback = QueryParam "code" String :> Get '[String] NoContent
 
+authorize :: OAuth2 -> Server Authorize
+authorize oa = return $ authUri oa
+
+callback :: Server Callback
+callback = (\code -> do
+               liftIO . putStrLn . show $ code
+               return NoContent)
+
+
+type OAuthAPI = "github" :> (
+  "authorize" :> Authorize
+  :<|> "authorized" :> Callback)
+  
 api :: Proxy OAuthAPI
 api = Proxy
 
 oauthServer :: OAuth2
-            -> OAuth2
             -> Server OAuthAPI
-oauthServer github bitbucket = (authEndpoint github)
-                               :<|> (authEndpoint bitbucket)
+oauthServer
+  githuboa
+  = authorize githuboa
+    :<|> callback
 
 
 --------------------
@@ -51,12 +69,14 @@ type DevApi =  MyApi
                :<|> OAuthAPI
 
 devServer :: OAuth2
-          -> OAuth2
           -> ConnectionPool
           -> ServerT DevApi (ExceptT ServantErr IO)
-devServer githuboa bitbucketoa pool = server pool
-                    :<|>  authEndpoint githuboa
-                    :<|>  authEndpoint bitbucketoa
+devServer
+  githuboa
+  pool
+  = server pool
+    :<|>  oauthServer githuboa
+    
 
 devApi :: Proxy DevApi
 devApi = Proxy
@@ -80,4 +100,6 @@ main = do
   -- Run
   Network.Wai.Handler.Warp.run 8080
     $ serve devApi
-    $ devServer githuboa bitbucketoa pool
+    $ devServer
+    githuboa
+    pool
