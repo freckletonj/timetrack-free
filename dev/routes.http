@@ -1,3 +1,5 @@
+# -*- restclient -*-
+
 ##############################
 # Constants
 
@@ -75,13 +77,10 @@ PUT :host/post/1
 "content": "HACKED"
 }
 
+##############################
+# GHCredential
 
-
-route ::  ExceptT ServantErr IO a
-route = runget dn mk = runQuery $ do
-        ...
-        auth -- can throw err
-        mgetOr404 -- can throw err
+GET :host/github/authorize
 
 
 ##############################

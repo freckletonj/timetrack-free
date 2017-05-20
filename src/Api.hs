@@ -82,9 +82,19 @@ on user's behalf
 [ ] 3 - users sign in's can be persisted and authenticated through
 sessions
 
-[ ] 4 - user workflows can be declared and tested automatically
+[ ] 4 - user workflows can be declared and tested
+automatically. Perhaps just a simple requests lib, and actually run it
+on IO. Fixtures are added each time a feature is added, and the db can
+be torn down/remade each test, prob not too expensively.
 
-[ ] 5 - look into using an org-mode kanban for task tracking?
+[ ] 5 - move tickets to markdown, look into using an org-mode kanban
+for task tracking? raw org-mode?
+
+[ ] 6 - implement code quality stuff, cyclomatic complexity, stylish
+haskell, linter...
+
+[ ] 7 - implement testing.
+https://github.com/haskell-servant/servant-quickcheck?
 
 -}
 
@@ -216,24 +226,24 @@ makePool Development cfg = do
   c <- (connStr cfg)
   runStdoutLoggingT $ createPostgresqlPool c 2
   
-makePool Testing     cfg = undefined
-makePool Production  cfg = undefined
+makePool Testing cfg = undefined
+makePool Production cfg = undefined
 
 
 --------------------------------------------------
 -- Main
 
-main :: IO ()
-main = do
+-- main :: IO ()
+-- main = do
 
-  -- Config
-  cfg <- C.load [C.Required "resource/config.cfg"]
-  env <- C.require cfg "environment"
+--   -- Config
+--   cfg <- C.load [C.Required "resource/config.cfg"]
+--   env <- C.require cfg "environment"
 
-  -- Resources
-  pool <- makePool (read env) cfg -- read == unsafe
-  runSqlPool (runMigration migrateAll) pool
+--   -- Resources
+--   pool <- makePool (read env) cfg -- read == unsafe
+--   runSqlPool (runMigration migrateAll) pool
   
 
-  -- Run
-  Network.Wai.Handler.Warp.run 8080 (serve myApi (server pool))
+--   -- Run
+--   Network.Wai.Handler.Warp.run 8080 (serve myApi (server pool))

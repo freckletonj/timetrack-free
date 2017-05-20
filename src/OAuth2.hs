@@ -17,7 +17,7 @@ import Data.String.Conversions (cs)
 import Data.List
 
 --import Control.Applicative
-import Control.Arrow
+--import Control.Arrow
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -63,15 +63,15 @@ queryString xs = '?' : intercalate "&" (map f xs)
   where f (k,v) = k ++ '=':v
 
 -- | Generate the URL for GETing a temporary code
-authEndpoint :: OAuth2 -> String
-authEndpoint oa = (oauthOAuthorizeEndpoint oa)
+authUri :: OAuth2 -> String
+authUri oa = (oauthOAuthorizeEndpoint oa)
                   ++ queryString [("client_id", oauthClientId oa)
                                  ,("response_type", "code")
                                  ,("redirect_uri", oauthCallback oa)]
 
 -- | Generate the URL for POSTing a code to trade for a token
-tokenEndpoint :: String -> OAuth2 -> String
-tokenEndpoint code oa = (oauthAccessTokenEndpoint oa)
+tokenUri :: String -> OAuth2 -> String
+tokenUri code oa = (oauthAccessTokenEndpoint oa)
                         ++ queryString [("client_id", oauthClientId oa)
                                        ,("client_secret", oauthClientSecret oa)
                                        ,("code", code)]
@@ -80,7 +80,7 @@ tokenEndpoint code oa = (oauthAccessTokenEndpoint oa)
 
 -- | Step 1. Take user to the service's auth page
 getAuthorize :: OAuth2 -> Handler HTML
-getAuthorize oa = return $ concat ["<h1><a href=", authEndpoint oa, ">", "Get Authorized!", "</a></h1>"]
+getAuthorize oa = return $ concat ["<h1><a href=", authUri oa, ">", "Get Authorized!", "</a></h1>"]
 
 -- | Step 2. Accept a temporary code from the service, and exchange
 -- for an auth token
@@ -98,7 +98,7 @@ getAuthorized oa mcode = do
 -- | Step 3. Exchange code for auth token
 getAccessToken :: OAuth2 -> String -> IO (Either String String) -- TODO: should be Either
 getAccessToken oa code = do
-  let endpoint = tokenEndpoint code oa
+  let endpoint = tokenUri code oa
   request' <- parseRequest endpoint
   let request = setRequestMethod "POST"
                 $ addRequestHeader "Accept" "application/json"
@@ -116,13 +116,12 @@ getAccessToken oa code = do
              Right obj -> parseResAccessToken obj
 
 parseResAccessToken :: Object -> Either String String
-parseResAccessToken obj = f 
-                            where f = case HM.lookup "access_token" obj of
+parseResAccessToken obj = case HM.lookup "access_token" obj of
                                         Just x -> case x of
                                           String x' -> Right . cs $ x'
                                           _ -> Left "access_token wasn't a string"
                                         _ -> Left "didn't have access_token"
-                                  g = undefined
+
 
 eitherLookup :: String -> Object -> Either String Value
 eitherLookup s obj = case HM.lookup (cs s) obj of
@@ -134,51 +133,6 @@ valueToString v = case v of
                     String x -> Right . cs $ x
                     _ -> Left "not a string"
 
--- getError :: Object -> Either String [(String, Value)]
--- getError obj = let error = const &&& (flip eitherLookup obj) $ "error"
---                    descr = const &&& (flip eitherLookup obj) $ "error_description" 
---                in case (error, descr) of
---                    (Right e, Right d) -> Right [e, d]
---                    (Right e, _) -> Right [e]
---                    (_, Right d) -> Right [d]
---                    _ -> Left "ambiguous error from object"
-
-
--- -- λ> :t (>=>)
--- -- (>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
-
--- -- λ> :t either
--- -- either :: (a -> c) -> (b -> c) -> Either a b -> c
-
--- -- getResponseBody :: ... -> Either JSONException Object
-
--- -- λ> :t (+++)
--- -- (+++) :: ArrowChoice a => a b c -> a b' c' -> a (Either b b') (Either c c')
-
--- parseResult :: Response (Either JSONException Object) -> Either [(String, Value)] Value -- [(String, Value)]
--- parseResult r = ((const [("error", String "no access token")]) +++ (\a -> a))
---                 . ((++ [("error", String "couldn't parse json")] ) +++ (eitherLookup "access_token"))
---                 . (left $ const [])
---                 $ getResponseBody r -- :: Either JSONException Object
-              
-               
-  
-
-  
---------------------------------------------------
--- traverse
---   :: (Applicative f, Traversable t) => (a -> f b) -> t a -> f (t b)                                                            
-
-    
-
---------------------------------------------------
-
-
-
-
-
-----------
-
 -- | HTML Content Type for returning Strings as HTML
 type HTML = String
 instance Accept HTML where
@@ -186,20 +140,19 @@ instance Accept HTML where
 instance MimeRender HTML String where
   mimeRender _ = cs
   
-----------
 
--- | Construct an OAuth2 from a Configurator-derived map that contains
--- it's values
-oauth2 :: (HM.HashMap CT.Name CT.Value) -> String -> Maybe OAuth2
+-- | Try to construct an OAuth2 given a Config, and a String that
+-- defines the name of the config record where this provider's
+-- information lives. EG `github { ... }` 
+
+oauth2 :: CT.Config -> String -> IO OAuth2
 oauth2 c name = OAuth2
-                <$> f "clientId"
-                <*> f "clientSecret"
-                <*> f "oAuthorizeEndpoint"
-                <*> f "accessTokenEndpoint"
-                <*> f "callback"
-  where f v = case HM.lookup (cs (name ++ '.' : v)) c of
-                Just x -> CT.convert x
-                _ -> Nothing
+  <$> f "clientId"
+  <*> f "clientSecret"
+  <*> f "oAuthorizeEndpoint"
+  <*> f "accessTokenEndpoint"
+  <*> f "callback"
+  where
+    f v = (C.require c (cs (name ++ '.' : v)))
 
-----------
 
