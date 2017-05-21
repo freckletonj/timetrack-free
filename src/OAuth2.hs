@@ -106,7 +106,7 @@ getAccessToken oa code = do
                                            ,("redirect_uri", cs $ (oauthCallback oa))]
                 $ request'
   response <- httpJSONEither request -- only Left if response not JSON
-  putStrLn . show $ response -- TODO: debug, remove
+  -- putStrLn . show $ response -- TODO: debug, remove
   
   return $ case ((getResponseBody response) :: Either JSONException Object) of
              Left exc -> Left . show $ exc -- < TODO: never triggered, always fails through Right... a useful failure for testing is try to redeem the same code twice

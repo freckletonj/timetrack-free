@@ -26,6 +26,7 @@ import Database.Persist.TH
 import Control.Monad.Trans.Except
 import Control.Monad.Except
 import qualified Data.HashMap.Lazy as HM
+import Data.String.Conversions (cs)
 
 import OAuth2
 import OAuthAPI
@@ -36,16 +37,18 @@ import PersistentType
 --------------------
 -- OAuth
 
-type Authorize = Get '[JSON] String
+type Authorize a = Get '[JSON] a
 type Callback a = QueryParam "code" String :> Get '[JSON] a
 
-authorize :: OAuth2 -> Server Authorize
-authorize oa = return $ authUri oa
+authorize :: Handler a -> Server (Authorize a)
+authorize f = f
+
+authorizeFn :: OAuth2 -> Handler String
+authorizeFn oa = throwError err303 { errHeaders = [("Location", cs $ authUri oa)] }
 
 callback :: (Maybe String -> Handler a) -> Server (Callback a)
 callback f = (\code -> f code >>= return)
 
---callbackFn :: (MonadIO m)=> OAuth2 -> Maybe String -> m String
 callbackFn :: OAuth2 -> Maybe String -> Handler String
 callbackFn oa mcode = do
   liftIO . putStrLn $ "mcode: " ++ show mcode
@@ -59,7 +62,7 @@ callbackFn oa mcode = do
 
 
 type OAuthAPI = "github" :> (
-  "authorize" :> Authorize
+  "authorize" :> Authorize String
   :<|> "authorized" :> Callback String)
   
 api :: Proxy OAuthAPI
@@ -69,7 +72,7 @@ oauthServer :: OAuth2
             -> Server OAuthAPI
 oauthServer
   githuboa
-  = authorize githuboa
+  = authorize (authorizeFn githuboa)
     :<|> callback (callbackFn githuboa)
 
 
