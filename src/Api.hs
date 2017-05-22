@@ -38,167 +38,66 @@ import Debug.Trace
 import qualified Network.Wai.Handler.Warp
 import PersistentType
 import Servant hiding (throw)
-import Control.Exception.Safe hiding (throw)
+import Control.Exception.Safe hiding (throw, Handler)
 import Type
-import OAuth2
+
+import Util.OAuth2
 
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
 import qualified Data.HashMap.Lazy as HM
 
 
-{-
+type DN = Header "dn" Text -- todo: replace DN header with some sort
+                           -- of appropriate session header
 
-# General Todo
-
-## Errors
-- return appropriate errors
-- safe-exceptions
-- ExceptT
-- ServantError
-- 
-
-## Transactions
-- http://stackoverflow.com/questions/31359894/catching-an-exception-from-rundb
-- transaction errors log + return (exception-lifted?)
-- runSqlConn(?) keeps things in a transaction
-- transactionSave / transactionUndo?
-
-## Auth
-- access control
-- credentials add appropriate dn?
-- goog/facebook auth? <- lowest risk/compliance + easy for customers?
-- sessions and tokens
-
---------------------------------------------------
-
-# Tickets
-
-[ ] 1 - user can log in through oauth and get a list of their repos
-
-[ ] 2 - user's oauth credentials are saved and api can use them ad lib
-on user's behalf
-
-[ ] 3 - users sign in's can be persisted and authenticated through
-sessions
-
-[ ] 4 - user workflows can be declared and tested
-automatically. Perhaps just a simple requests lib, and actually run it
-on IO. Fixtures are added each time a feature is added, and the db can
-be torn down/remade each test, prob not too expensively.
-
-[ ] 5 - move tickets to markdown, look into using an org-mode kanban
-for task tracking? raw org-mode?
-
-[ ] 6 - implement code quality stuff, cyclomatic complexity, stylish
-haskell, linter...
-
-[ ] 7 - implement testing.
-https://github.com/haskell-servant/servant-quickcheck?
-
-[ ] 8 - figure out the right way to document stuff, perhaps with
-motivation from Snoyman?
-
--}
-
-
-type CRUD a = DN :> (ReqBody '[JSON] a :> Post '[JSON] (MKey a) -- create
-                     :<|> Capture "id" (MKey a) :> Get '[JSON] a -- read
-                     :<|> Capture "id" (MKey a)
-                      :> ReqBody '[JSON] a :> Put '[JSON] () -- update
-                     :<|> Capture "id" (MKey a) :> Delete '[JSON] () -- delete
+type CRUD a = DN :> (ReqBody '[JSON] a :> Post '[JSON] (Key a) -- create
+                     :<|> Capture "id" (Key a) :> Get '[JSON] a -- read
+                     :<|> Capture "id" (Key a)
+                      :> ReqBody '[JSON] a :> Put '[JSON] NoContent -- update
+                     :<|> Capture "id" (Key a) :> Delete '[JSON] NoContent -- delete
                     )
 
-type DN = Header "dn" Text
+type Persistable val = (PersistEntityBackend val ~ SqlBackend
+                       , PersistEntity val
+                       -- , ToBackendKey SqlBackend val -- TODO: why
+                       -- did ppl include this?
+                       )
+runDb :: (MonadIO m) => ConnectionPool -> SqlPersistT IO a -> m a
+runDb pool query = liftIO $ runSqlPool query pool
 
+runCrud :: Persistable a
+  => ConnectionPool
+  -> Server (CRUD a)
+runCrud pool = (\mdn ->
+                  crudNew pool mdn
+                  :<|> crudGet pool mdn
+                  :<|> crudUpdate pool mdn
+                  :<|> crudDelete pool mdn)
 
+crudNew :: Persistable a => ConnectionPool -> Maybe Text -> a -> Handler (Key a)
+crudNew pool mdn a = do
+  newKey <- runDb pool (insert a)
+  return $  newKey
 
---------------------------------------------------
--- Interpreting the Persistence DSL
+crudGet :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> Handler a
+crudGet pool mdn k = do
+  mbA <- runDb pool $ get k
+  case mbA of
+    Nothing -> throwError err404
+    Just a -> return $ a -- Entity k a
 
-type ServantIO a = SqlPersistT (LoggingT (ExceptT ServantErr IO)) a
+crudDelete :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> Handler NoContent
+crudDelete pool mdn k = do
+  runDb pool $ delete k
+  return NoContent
 
-runPersistence :: PersistenceService a -> ServantIO a
-runPersistence ps = case O.view ps of
-                  Return a -> return a
-                  a :>>= f -> runM a f
-
-runM :: PersistenceAction a -> (a -> PersistenceService b) -> ServantIO b
-runM x f = case x of
-  Throw rr@(ServantErr code reason body headers) -> do
-    conn <- ask
-    logOtherNS "WS" LevelError (show (code,reason) ^. packed)
-    throwError rr
-  Get k    -> get k       >>= tsf
-  New v    -> insert v    >>= tsf
-  Del v    -> delete v    >>= tsf
-  GetBy u  -> getBy u     >>= tsf
-  Upd k v  -> replace k v >>= tsf
-  where
-      tsf = runPersistence . f
-
-
---------------------------------------------------
--- Implementing the API
-
--- | Create an AccessType for 1. a record on 2. a key within 3. a rights-tracking Entity
-createRight :: (PersistEntityBackend val ~ SqlBackend, PersistEntity val) =>
-     Entity record                             -- ex: Key Person
-     -> t                                      -- ex: Key BlogPost
-     -> (Key record -> t -> AccessType -> val) -- ex: PostRights
-     -> PersistenceService (Key val)
-createRight usr k constructor =  mnew (constructor (entityKey usr) k Owner)
-
-runCrud :: (PersistEntity a, ToBackendKey SqlBackend a) -- PC b
-        => ConnectionPool -- ^ Connection pool
-        -> (Maybe Text ->
-            (a -> ExceptT ServantErr IO (MKey a))
-            :<|> ((MKey a      -> ExceptT ServantErr IO a)
-            :<|> ((MKey a -> a -> ExceptT ServantErr IO ())
-            :<|> (MKey a      -> ExceptT ServantErr IO ())))
-           )
-runCrud pool =
-  (\dn -> runnew dn
-          :<|> runget dn
-          :<|> runupd dn
-          :<|> rundel dn)
-    where
-        auth Nothing _ = throw err401
-        auth (Just dn) perm = do
-          user <- mgetBy dn >>= maybe (throw err403) return
-          return user
-        runnew dn val = runQuery $ do
-          k <- mnew val
-          return (k ^. from _MKey)
-        runget dn mk = runQuery $ do
-          let k = mk ^. _MKey
-          mgetOr404 k
-        runupd dn mk val = runQuery $ do
-          let k = mk ^. _MKey
-          mupd k val
-        rundel dn mk = runQuery $ do
-          let k = mk ^. _MKey
-          mdel k
-        runQuery :: PersistenceService a -> ExceptT ServantErr IO a
-        runQuery ps = runStderrLoggingT $ runSqlPool (runPersistence ps) pool
-
-
---------------------------------------------------
--- Serving the API
-
-type MyApi = "user" :> CRUD User
-        :<|> "clock"   :> CRUD Clock
-        :<|> "session" :> CRUD Session
-        :<|> "ghcredential" :> CRUD GHCredential
-
-myApi :: Proxy MyApi
-myApi = Proxy
-
-server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
-server pool = runCrud pool -- user
-              :<|> runCrud pool -- clock
-              :<|> runCrud pool -- session
-              :<|> runCrud pool -- ghcredential
+crudUpdate :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> a -> Handler NoContent
+crudUpdate pool mdn k a = do
+  exists <- runDb pool $ get k
+  case exists of
+    Nothing -> throwError err404
+    Just _ -> runDb pool $ replace k a >> return NoContent
 
 
 --------------------------------------------------
@@ -211,18 +110,18 @@ data Env = Development
 
 connStr :: MonadIO m => CT.Config -> m ConnectionString
 connStr cfg = do
-  host <- f "postgres.host"
-  dbname <- f "postgres.dbname"
-  port <- f "postgres.port"
-  user <- f "postgres.user"
-  pass <- f "postgres.pass"
+  host <- f "host"
+  dbname <- f "dbname"
+  port <- f "port"
+  user <- f "user"
+  pass <- f "pass"
   return . cs $ concat ["host=", host
                        , " dbname=", dbname
                        , " port=", port
                        , " user=", user
                        , " password=", pass]
     where
-      f = liftIO . C.require cfg
+      f = liftIO . C.require cfg . cs . ("postgres." ++)
 
 makePool :: Env -> CT.Config -> IO ConnectionPool
 makePool Development cfg = do
@@ -234,19 +133,19 @@ makePool Production cfg = undefined
 
 
 --------------------------------------------------
--- Main
+-- Serving the API
 
--- main :: IO ()
--- main = do
+type MyApi = "user" :> CRUD User
+       :<|> "clock"   :> CRUD Clock
+       :<|> "session" :> CRUD Session
+       :<|> "ghcredential" :> CRUD GhCredential
 
---   -- Config
---   cfg <- C.load [C.Required "resource/config.cfg"]
---   env <- C.require cfg "environment"
+myApi :: Proxy MyApi
+myApi = Proxy
 
---   -- Resources
---   pool <- makePool (read env) cfg -- read == unsafe
---   runSqlPool (runMigration migrateAll) pool
-  
+server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
+server pool = runCrud pool -- user
+             :<|> runCrud pool -- clock
+             :<|> runCrud pool -- session
+             :<|> runCrud pool -- ghcredential
 
---   -- Run
---   Network.Wai.Handler.Warp.run 8080 (serve myApi (server pool))

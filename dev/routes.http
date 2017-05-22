@@ -1,4 +1,4 @@
-# -*- restclient -*-
+# -*- mode: restclient; url-max-redirections: 0 -*-
 
 ##############################
 # Constants
@@ -16,75 +16,40 @@ Content-Type: application/json
 dn: Adam!
 #
 
-# Bob
-:b = <<
+##############################
+# User
+
+# Create
+POST :host/user
 :content
-dn: Bob
-#
-
-##############################
-# Person
-
-# CREATE
-POST :host/person
-:a
 {
-"name": "Bob",
-"isAdmin": false
+"email": "a"
 }
 
-# READ
-GET :host/person/1
-:a
+# Read
+GET :host/user/a
+:content
 
-# UPDATE
-PUT :host/person/2
-:a
+# Update
+PUT :host/user/a
+:content
 {
-"name": "Bob",
-"isAdmin": false
-
+"email": "b"
 }
 
-# DELETE
-DELETE :host
-
-# LIST ALL - doesnt exist yet
-GET :host/person
-:a
-
-
-##############################
-# Post
-
-# CREATE
-POST :host/post
-:a
-{
-"title": "first",
-"content": "yay"
-}
-
-# READ
-GET :host/post/3
-:a
-
-# UPDATE
-PUT :host/post/1
-:b
-{
-"title": "HACKED",
-"content": "HACKED"
-}
+# Delete
+DELETE :host/user/a
+:content
 
 ##############################
 # GHCredential
 
 # Step 1. Get a link for authorizing at the service
 GET :host/github/authorize
+dn: mrlink@gmail.com
 
 # Step 2. Accept a callback from the service
-GET :host/github/authorized?code=hooray!
+GET :host/github/authorized?code=hooray
 
 # Step 3. The token should have been persisted, use it!
 

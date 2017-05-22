@@ -21,6 +21,7 @@ library
                      , conduit
                      , configurator
                      , containers
+                     , cryptonite
                      , http-conduit
                      , http-media
                      , http-api-data
