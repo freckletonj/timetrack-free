@@ -45,6 +45,8 @@ DELETE :host/user/a
 # GHCredential
 
 # Step 1. Get a link for authorizing at the service
+# Test with- C-c C-u to get curl command
+# copy the redirect address
 GET :host/github/authorize
 dn: mrlink@gmail.com
 
