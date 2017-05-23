@@ -108,22 +108,26 @@ oauthServer
 
 type DevApi auths =  MyApi
                :<|> OAuthAPI
-               :<|> TestAuthRoute auths
+               :<|> "login" :> LoginRoute
+               :<|> "authtest" :> TestAuthRoute auths
                
 
 devServer :: ConnectionPool
           -> CookieSettings
+          -> JWTSettings
           -> OAuth2
           -> OAuth2
           -> ServerT (DevApi '[Cookie]) (ExceptT ServantErr IO)
 devServer
   pool
   cs
+  jwts
   githuboa
   bitbucketoa
   =
   server pool
   :<|> oauthServer pool githuboa bitbucketoa
+  :<|> loginRoute cs jwts pool
   :<|> testAuthRoute
     
 
@@ -157,6 +161,7 @@ main = do
     $ devServer
     pool
     defaultCookieSettings
+    jwtCfg
     githuboa
     bitbucketoa
 

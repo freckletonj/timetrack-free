@@ -57,7 +57,25 @@ GET :host/github/authorized?code=hooray
 
 
 ##############################
-# Problem
+# 
 
 #
-GET :host/problem
+GET :host/
+
+# Login
+POST :host/login
+:content
+{
+"email": "a",
+"password": "a"
+}
+
+# Signup
+POST :host/signup
+:content
+{
+"email": "a",
+"password": "a"
+}
+#
+decode "{\"email\": \"hi\", \"password\": \"a\"}" :: Maybe ClearCredentials

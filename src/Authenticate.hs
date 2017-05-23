@@ -1,9 +1,10 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveGeneric #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 
 module Authenticate where
 
@@ -47,30 +48,35 @@ type Authed authable obj route =
 class Authable a where -- TODO: can I generalize ConnectionPool?
   isAuthenticated :: (MonadIO m) => ConnectionPool -> a -> m Bool
 
+
 ----------
 -- Data-Model-Specific Implementation
 
-data ClearCredentials = ClearCredentials { ccEmail :: Maybe (Key Password)
-                                         , ccClearPass :: Maybe Text}
-                 deriving (Generic, FromJSON)
+data ClearCredentials = ClearCredentials { ccEmail :: Key Password
+                                         , ccClearPass :: Text}
+                 deriving (Show) -- TODO: remove Show
 
+instance FromJSON ClearCredentials where
+  parseJSON (Object v) = ClearCredentials 
+                         <$> v .: "email"
+                         <*> v .: "password"
+  
 -- TODO: clean up nesting
 -- TODO: clean up cs, Text, B.pack
 instance Authable ClearCredentials where
-  isAuthenticated pool (ClearCredentials memail mclearpass) = do
-    case memail of
+  isAuthenticated pool (ClearCredentials email clearpass) = do
+    liftIO $ putStrLn $ show email ++ show clearpass
+    mPassword <- runDb pool $ get $ email
+    case mPassword of
       Nothing -> return False
-      Just kuser -> do
-        mPassword <- runDb pool $ get $ kuser
-        case mPassword of
-          Nothing -> return False
-          Just (Password _ hash) -> do
-            case mclearpass of
-              Nothing -> return False
-              Just clearpass -> do
-                return $ validatePassword
-                  (B.pack $ cs clearpass)
-                  (B.pack $ cs hash)
+      Just (Password _ hash) -> do
+            return $ validatePassword
+              (B.pack $ cs clearpass)
+              (B.pack $ cs hash)
+
+
+
+
 
 -- type TestProtected =  (Get '[JSON] Bool)
 -- type TestAuthRoute =  Authed '[ClearCredentials] User TestProtected
@@ -82,6 +88,23 @@ testAuthRoute :: AuthResult User -> Server TestProtected
 testAuthRoute (Authenticated u) = return True
 testAuthRoute _ = return False
 
+instance FromJWT User where
+instance ToJWT User where
+
+type LoginRoute = ReqBody '[JSON] ClearCredentials
+                  :> Post '[JSON] String
+
+loginRoute :: CookieSettings
+  -> JWTSettings
+  -> ConnectionPool
+  -> ClearCredentials
+  -> Handler String
+loginRoute cookieSettings jwtSettings pool cc = do
+  valid <- isAuthenticated pool cc
+  case valid of
+    True -> return "hi"
+    False -> return "nope"
+  
 
 -- Set Headers
 -- PostNoContent '[JSON] (Headers '[ Header "Set-Cookie" SetCookie
