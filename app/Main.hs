@@ -1,6 +1,6 @@
 module Main where
 
-import Lib
 
 main :: IO ()
-main = someFunc
+main = do
+  putStrLn "Welcome to src/Main.hs"

@@ -18,6 +18,7 @@ library
   exposed-modules:     Lib
   build-depends:       base >= 4.7 && < 5
                      , aeson
+                     , bytestring
                      , conduit
                      , configurator
                      , containers
@@ -38,6 +39,10 @@ library
                      , persistent-template
                      , safe-exceptions
                      , servant
+                     , servant-auth
+                     , servant-auth-client
+                     , servant-auth-docs
+                     , servant-auth-server
                      , servant-server
                      , string-conversions
                      , text

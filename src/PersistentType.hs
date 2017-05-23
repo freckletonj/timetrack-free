@@ -56,6 +56,7 @@ User json
 
 Password
   userEmail UserId
+  hash Text
   Primary userEmail
   -- no `deriving Show` to help eliminate printing, IE to logs
 

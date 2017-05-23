@@ -18,6 +18,7 @@ module Dev.Main where
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
 import Servant
+import Servant.Auth.Server
 import Network.Wai.Handler.Warp
 import Database.Persist.Postgresql
 import Database.Persist.TH
@@ -30,6 +31,7 @@ import Data.Text
 import Util.OAuth2.Servant
 import Util.OAuth2
 import Api
+import Authenticate
 import PersistentType
 
 
@@ -104,25 +106,28 @@ oauthServer
 --------------------
 -- DevApi
 
-type DevApi =  MyApi
-               :<|>
-               OAuthAPI
+type DevApi auths =  MyApi
+               :<|> OAuthAPI
+               :<|> TestAuthRoute auths
+               
 
 devServer :: ConnectionPool
+          -> CookieSettings
           -> OAuth2
           -> OAuth2
-          -> ServerT DevApi (ExceptT ServantErr IO)
+          -> ServerT (DevApi '[Cookie]) (ExceptT ServantErr IO)
 devServer
   pool
+  cs
   githuboa
   bitbucketoa
   =
   server pool
-  :<|>
-  oauthServer pool githuboa bitbucketoa
+  :<|> oauthServer pool githuboa bitbucketoa
+  :<|> testAuthRoute
     
 
-devApi :: Proxy DevApi
+devApi :: Proxy (DevApi '[Cookie])
 devApi = Proxy
 
 main :: IO ()
@@ -131,11 +136,16 @@ main = do
   -- Config
   cfg <- C.load [C.Required "resource/config.cfg"]
   oauthcfg <- C.load [C.Required ".secret/oauth.cfg"]
-
+  
   -- Variables
   env <- C.require cfg "environment"
   githuboa <- oauth2 oauthcfg "github"
   bitbucketoa <- oauth2 oauthcfg "bitbucket"
+
+  -- JWT
+  myKey <- generateKey -- TODO: save this somewhere
+  let jwtCfg = defaultJWTSettings myKey
+      serverCfg = defaultCookieSettings :. jwtCfg :. EmptyContext 
 
   -- Resources
   pool <- makePool (read env) cfg -- TODO: read == unsafe
@@ -143,9 +153,10 @@ main = do
 
   -- Run
   Network.Wai.Handler.Warp.run 8080
-    $ serve devApi
+    $ serveWithContext devApi serverCfg
     $ devServer
     pool
+    defaultCookieSettings
     githuboa
     bitbucketoa
 
