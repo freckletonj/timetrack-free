@@ -1,5 +1,10 @@
 # timetrack-free
 
+# Running
+
+ssh-keygen -t rsa -b 4096 -N "" -f .secret/timetrack.key
+
+
 # General Todo
 
 ## Errors
@@ -34,6 +39,10 @@ on user's behalf
 sessions
 - http://hackage.haskell.org/package/cryptonite-0.23/docs/Crypto-KDF-BCrypt.html
 
+
+----- ^^^^ Above are being worked on in this ticket
+
+
 [ ] 4 - user workflows can be declared and tested
 automatically. Perhaps just a simple requests lib, and actually run it
 on IO. Fixtures are added each time a feature is added, and the db can
@@ -56,10 +65,17 @@ keys, build?, CI?, etc.
 - https://abailly.github.io/posts/cm-infra-2.html
 - https://propellor.branchable.com/haskell_newbie/
 
-[ ] 10 -
+[ ] 10 - logging
 
 [ ] 11 - users can only see things they're auth'd and auth'd for
 
+
+# Clean Code / Refactoring
+
+- check
+  - `-- TODO`
+  - `error`
+  - `return` -> `pure` ?
 
 # Not to be Forgotten
 

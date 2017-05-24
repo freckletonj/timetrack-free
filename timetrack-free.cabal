@@ -26,6 +26,7 @@ library
                      , http-conduit
                      , http-media
                      , http-api-data
+                     , jose
                      , lens
                      -- , lifted-base
                      , monad-logger
@@ -51,6 +52,8 @@ library
                      , uuid
                      , unordered-containers
                      , warp
+                     , x509
+                     , x509-store
 
   default-language:    Haskell2010
 

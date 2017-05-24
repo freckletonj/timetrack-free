@@ -27,6 +27,9 @@ import Control.Monad.Except
 import qualified Data.HashMap.Lazy as HM
 import Data.String.Conversions (cs)
 import Data.Text
+import Crypto.JOSE.JWK (JWK, fromRSA)
+import Data.X509 (PrivKey (..))
+import Data.X509.File (readKeyFile)
 
 import Util.OAuth2.Servant
 import Util.OAuth2
@@ -112,13 +115,12 @@ type DevApi auths =  MyApi
                :<|> "signup" :> SignupRoute
                :<|> "authtest" :> TestAuthRoute auths
                
-
 devServer :: ConnectionPool
           -> CookieSettings
           -> JWTSettings
           -> OAuth2
           -> OAuth2
-          -> ServerT (DevApi '[Cookie]) (ExceptT ServantErr IO)
+          -> ServerT (DevApi '[JWT, Cookie]) (ExceptT ServantErr IO)
 devServer
   pool
   cs
@@ -133,8 +135,17 @@ devServer
   :<|> testAuthRoute
     
 
-devApi :: Proxy (DevApi '[Cookie])
+devApi :: Proxy (DevApi '[JWT, Cookie])
 devApi = Proxy
+
+mkJWK :: FilePath -> IO JWK
+mkJWK keypath = do
+  maybePk <- readKeyFile keypath
+  case  maybePk of
+    [] -> error $ "no valid keys at: " ++ keypath
+    (PrivKeyRSA pk):_ -> pure $ fromRSA pk
+    _ -> error "not a valid RSA key"
+
 
 main :: IO ()
 main = do
@@ -149,8 +160,10 @@ main = do
   bitbucketoa <- oauth2 oauthcfg "bitbucket"
 
   -- JWT
-  myKey <- generateKey -- TODO: save this somewhere
-  let jwtCfg = defaultJWTSettings myKey
+  keyPath <- C.require cfg "jwtKey"
+  jwtKey <- mkJWK keyPath
+  
+  let jwtCfg = defaultJWTSettings jwtKey
       serverCfg = defaultCookieSettings :. jwtCfg :. EmptyContext 
 
   -- Resources
