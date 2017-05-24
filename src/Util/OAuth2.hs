@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Util.OAuth2 where
@@ -6,10 +7,14 @@ import Data.Aeson
 import Data.Aeson.Types (parseEither, parse)
 
 import Data.String.Conversions (cs)
-import Data.List
+import Data.List (intercalate)
+import Data.Text (Text)
 
 import Control.Monad
-import Control.Monad.IO.Class
+--import Control.Monad.IO.Class
+--import Database.Persist.Postgresql
+--import Database.Persist
+--import Control.Monad.Error.Class
 
 import Servant
 import Data.Proxy
@@ -19,15 +24,16 @@ import Network.HTTP.Simple hiding (Proxy)
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
 import qualified Data.HashMap.Lazy as HM
-
-
+--import Api (runDb)
+import PersistentType
 {-
 TODO: include `state` in github request, security feature
 TODO: tests, integration tests?
 -}
 
 -- | Type for holding OAuth2 configuration per Service
-data OAuth2 = OAuth2 { oauthClientId :: String
+data OAuth2 = OAuth2 { oauthName :: String
+                     , oauthClientId :: String
                      , oauthClientSecret :: String
                      , oauthOAuthorizeEndpoint :: String
                      , oauthAccessTokenEndpoint :: String
@@ -85,7 +91,8 @@ parseResAccessToken obj = case HM.lookup "access_token" obj of
 
 oauth2 :: CT.Config -> String -> IO OAuth2
 oauth2 c name = OAuth2
-  <$> f "clientId"
+  <$> f "name"
+  <*> f "clientId"
   <*> f "clientSecret"
   <*> f "oAuthorizeEndpoint"
   <*> f "accessTokenEndpoint"
@@ -93,4 +100,13 @@ oauth2 c name = OAuth2
   where
     f v = (C.require c (cs (name ++ '.' : v)))
 
+data OAuthCred =
+  OGh GhCredential
+  | OBb BbCredential
+  | ONone
+
+providerMap :: Text -> UserId -> Text -> OAuthCred
+providerMap "github" i t = OGh (GhCredential i t)
+providerMap "bitbucket" i t = OBb (BbCredential i t)
+providerMap _ _ _ = ONone
 

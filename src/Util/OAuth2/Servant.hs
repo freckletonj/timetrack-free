@@ -5,7 +5,9 @@
 module Util.OAuth2.Servant where
 
 import Data.Text
+import PersistentType
 import Servant
+import Servant.Auth.Server
 import Util.Misc
 import Api (DN)
 
@@ -23,10 +25,9 @@ permissions.
 token, and persist it,  and use it to make requests  on behalf of your
 user.
 
-
 -}
 
-type Authorize a = DN :> Get '[JSON] a
+type Authorize auths a = Auth auths User :> Get '[JSON] a
 
 type Callback a = QueryParam "code" String
                   :> QueryParam "email" String
@@ -34,7 +35,7 @@ type Callback a = QueryParam "code" String
 
 -- | The API consumer can provide the handler for starting the OAuth2
 -- process
-authorize :: (Maybe Text -> Handler a) -> Server (Authorize a)
+authorize :: (AuthResult User -> Handler a) -> Server (Authorize auths a)
 authorize f = f
 
 -- | The OAuth2 Provider will callback to the Server created here. The
@@ -48,5 +49,6 @@ callback f = (\code email -> f code email >>= return)
 
 -- | If your servant endpoints use this type, you've probably
 -- implemented OAuth2 properly.
-type ProviderAPI = "authorize" :> Authorize String
+
+type ProviderAPI auths = "authorize" :>  Authorize auths String
                    :<|> "authorized" :> Callback String

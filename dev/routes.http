@@ -10,10 +10,9 @@
 Content-Type: application/json
 #
 
-# Adam!
-:a = <<
-:content
-dn: Adam!
+# 
+:auth = <<
+Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjEuNDk4MTgzNDI5Nzc5NDQzZTksImRhdCI6eyJlbWFpbCI6ImEifX0.F9VaPXfIecOl0X1aTfl10WxQgv01KyGzAnMqsIOF8weU6ySNAcfZZe8bCS3xjX8oraaYJWgCchHT_O894nnFqaBYC-uDq521mU-A20Ln0qi6DcrBynoYuDJQdxr8P7VvVCA30UHGMRQnxM2mGvhRn6ZODjl7PrG5xkwEFToeyV19q7PUEUJhZ_DH0qyzqKU_Zr9VvNfLJZnBG2B_xphmpwWZJg0e5AwcV-LMLu_RrUiw5TySke8qYGcJw14Z6k2VC7JnYM1SB0TSeRCj4Iq1ACbHAkIWMC17baJsbXyA39LZxrjCyU-yzUZ_EPofYB0nbtyXsdPMdRc4YYIQBgrWKeUM0D2g3XTHVHWKABi5QsuevtV0XnBYMvG6fFq7H9k1cjhGgh5MBw3D-0j_kv9dEK12pBTquk1ZEnGcQoWWqBpa2Xq7qZ6VM-PaMyNf-G5GmgwbVGa974Jd337BgDOiu8dAoQ3-s6QIOMe0JhGURDPBMjeX1WmpC-YEHfB6Ujd3626awTNts20nF8G0VUN9Whw9Bkn0L88fY_Uzryx7utS8R8Kg4PKBn4wX5HG-yZB4yIZZVOwXbeBmvL2OfFceXcsOniPkpd7oeH2nbAJsUdiBZm_4iVlUgRR8h7HGpS1OHNRvAAaX4flwt76j-L39rI0NylfqnpIgIbhM-k_I4pU
 #
 
 ##############################
@@ -48,7 +47,7 @@ DELETE :host/user/a
 # Test with- C-c C-u to get curl command
 # copy the redirect address
 GET :host/github/authorize
-dn: mrlink@gmail.com
+:auth
 
 # Step 2. Accept a callback from the service
 GET :host/github/authorized?code=hooray
@@ -62,7 +61,7 @@ GET :host/github/authorized?code=hooray
 # Auth Test
 GET :host/authtest
 :content
-Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjEuNDk4MTgzNDI5Nzc5NDQzZTksImRhdCI6eyJlbWFpbCI6ImEifX0.F9VaPXfIecOl0X1aTfl10WxQgv01KyGzAnMqsIOF8weU6ySNAcfZZe8bCS3xjX8oraaYJWgCchHT_O894nnFqaBYC-uDq521mU-A20Ln0qi6DcrBynoYuDJQdxr8P7VvVCA30UHGMRQnxM2mGvhRn6ZODjl7PrG5xkwEFToeyV19q7PUEUJhZ_DH0qyzqKU_Zr9VvNfLJZnBG2B_xphmpwWZJg0e5AwcV-LMLu_RrUiw5TySke8qYGcJw14Z6k2VC7JnYM1SB0TSeRCj4Iq1ACbHAkIWMC17baJsbXyA39LZxrjCyU-yzUZ_EPofYB0nbtyXsdPMdRc4YYIQBgrWKeUM0D2g3XTHVHWKABi5QsuevtV0XnBYMvG6fFq7H9k1cjhGgh5MBw3D-0j_kv9dEK12pBTquk1ZEnGcQoWWqBpa2Xq7qZ6VM-PaMyNf-G5GmgwbVGa974Jd337BgDOiu8dAoQ3-s6QIOMe0JhGURDPBMjeX1WmpC-YEHfB6Ujd3626awTNts20nF8G0VUN9Whw9Bkn0L88fY_Uzryx7utS8R8Kg4PKBn4wX5HG-yZB4yIZZVOwXbeBmvL2OfFceXcsOniPkpd7oeH2nbAJsUdiBZm_4iVlUgRR8h7HGpS1OHNRvAAaX4flwt76j-L39rI0NylfqnpIgIbhM-k_I4pU
+:auth
 
 # Login
 POST :host/login

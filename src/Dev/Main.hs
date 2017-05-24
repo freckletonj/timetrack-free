@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
 {-
@@ -37,22 +38,32 @@ import Api
 import Authenticate
 import PersistentType
 
+-- | insert any supported OAuth Provider
+insertProvider :: (MonadIO m, MonadError ServantErr m)
+  => ConnectionPool -> OAuthCred -> m ()
+insertProvider pool (OGh x) = runDb pool $ insert x >> return ()
+insertProvider pool (OBb x) = runDb pool $ insert x >> return ()
+insertProvider _ ONone = throwError err400
 
 -- | Return a redirect to the OAuth provider's required URI
 authorizeFn :: OAuth2
-            -> Maybe Text -- ^ email
+            -> AuthResult User
             -> Handler String
-authorizeFn oa = (\memail -> case memail of
-                     Nothing -> throwError err400 -- TODO: which error
-                                                  -- appropriate?
-                     Just email -> throwError err301 -- redirect (not error)
+authorizeFn oa = (\auser -> case auser of
+                     (Authenticated (User email)) ->
+                       throwError err301 -- redirect (not error)
                        { errHeaders = [("Location",
-                                        cs $ authUri oa
+                                         cs $ authUri oa
                                          ++ "?email="
-                                         ++ cs email)] })
+                                         ++ cs email)] }
+                     _ -> throwError err400 -- TODO: which error
+                                            -- appropriate?
+                 )
+
 
 -- | Accept a temporary code from a provider, exchange it for a token,
 -- persist it, and redirect the api consumer to the appropriate page.
+-- TODO: security risk with black hats calling this endpoint?
 callbackFn :: ConnectionPool
            -> OAuth2
            -> Maybe String -- ^ temporary code
@@ -71,29 +82,31 @@ callbackFn pool oa mcode memail = do
           case mtoken of
             Left error -> return error
             Right token -> do
+              let providerName = oauthName oa
+                  providerCons = providerMap $ cs providerName
 
-               -- TODO: remove
-              liftIO . putStrLn . cs $ email
-              liftIO . putStrLn . cs $ code
-              liftIO . putStrLn . cs $ token
+              -- persist user's token
+              (insertProvider pool
+                (providerCons
+                  (UserKey $ cs email)
+                  (cs token)))
 
-              -- TODO: persist token
               return token
 
 
 --------------------
 -- Generic OAuthAPI
 
-type OAuthAPI = "github" :> ProviderAPI
-                :<|> "bitbucket" :> ProviderAPI
+type OAuthAPI auths = "github" :> ProviderAPI auths
+                :<|> "bitbucket" :> ProviderAPI auths
   
-api :: Proxy OAuthAPI
+api :: Proxy (OAuthAPI auths)
 api = Proxy
 
 oauthServer :: ConnectionPool
             -> OAuth2 -- github
             -> OAuth2 -- bitbucket
-            -> Server OAuthAPI
+            -> Server (OAuthAPI auths)
 oauthServer
   pool
   githuboa
@@ -110,7 +123,7 @@ oauthServer
 -- DevApi
 
 type DevApi auths =  MyApi
-               :<|> OAuthAPI
+               :<|> OAuthAPI auths
                :<|> "login" :> LoginRoute
                :<|> "signup" :> SignupRoute
                :<|> "authtest" :> TestAuthRoute auths
