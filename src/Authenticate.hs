@@ -22,6 +22,7 @@ import Data.Text
 import Data.String.Conversions (cs)
 import Database.Persist
 import Database.Persist.Sql
+import Database.Persist.Types
 
 import Crypto.KDF.BCrypt (hashPassword, validatePassword)
 import qualified Data.ByteString.Char8 as B
@@ -36,11 +37,11 @@ hashIterations = 12         -- 15 =~ 6 sec
 -- data Authy val = NotAuthenticated
 --                     | Authenticated val
 
-type TokenRoute = ReqBody '[JSON] ClearCredentials
-                :> Post '[JSON] Text
+-- type TokenRoute = ReqBody '[JSON] ClearCredentials
+--                 :> Post '[JSON] Text
 
-type SignupRoute = ReqBody '[JSON] ClearCredentials
-                 :> Post '[JSON] NoContent
+-- type SignupRoute = ReqBody '[JSON] ClearCredentials
+--                  :> Post '[JSON] NoContent
 
 type Authed authable obj route =
   (Auth authable obj :> route)
@@ -54,7 +55,7 @@ class Authable a where -- TODO: can I generalize ConnectionPool?
 
 data ClearCredentials = ClearCredentials { ccEmail :: Key Password
                                          , ccClearPass :: Text}
-                 deriving (Show) -- TODO: remove Show
+                 -- deriving (Show) -- TODO: remove Show
 
 instance FromJSON ClearCredentials where
   parseJSON (Object v) = ClearCredentials 
@@ -65,7 +66,6 @@ instance FromJSON ClearCredentials where
 -- TODO: clean up cs, Text, B.pack
 instance Authable ClearCredentials where
   isAuthenticated pool (ClearCredentials email clearpass) = do
-    liftIO $ putStrLn $ show email ++ show clearpass
     mPassword <- runDb pool $ get $ email
     case mPassword of
       Nothing -> return False
@@ -73,9 +73,6 @@ instance Authable ClearCredentials where
             return $ validatePassword
               (B.pack $ cs clearpass)
               (B.pack $ cs hash)
-
-
-
 
 
 -- type TestProtected =  (Get '[JSON] Bool)
@@ -91,6 +88,8 @@ testAuthRoute _ = return False
 instance FromJWT User where
 instance ToJWT User where
 
+----------
+
 type LoginRoute = ReqBody '[JSON] ClearCredentials
                   :> Post '[JSON] String
 
@@ -101,11 +100,38 @@ loginRoute :: CookieSettings
   -> Handler String
 loginRoute cookieSettings jwtSettings pool cc = do
   valid <- isAuthenticated pool cc
+  -- etoken <- makeJWT 
   case valid of
     True -> return "hi"
     False -> return "nope"
   
+----------
 
+type SignupRoute = ReqBody '[JSON] ClearCredentials
+                   :> Post '[JSON] String
+
+signupRoute :: CookieSettings
+  -> JWTSettings
+  -> ConnectionPool
+  -> ClearCredentials
+  -> Handler String
+signupRoute cookieSettings
+  jwtSettings
+  pool
+  cc@(ClearCredentials kemail pass) = do
+  let cemail = fromPersistValue <$> keyToValues kemail
+      testemail = unPasswordKey kemail
+  hash <- hashPassword hashIterations $ B.pack . cs $ pass
+
+  -- kemail is a `Key Password`, in order to get a value out, convert
+  -- to a list of PersistValues (for if it's a multi-valued key), and
+  -- convert those to `Either <Haskell Value>`s
+  case cemail of
+    Right email:[] -> do
+      u <- runDb pool $ insert (User email)
+      p <- runDb pool $ insert (Password u (cs . B.unpack $ hash))
+      return "hi"
+ 
 -- Set Headers
 -- PostNoContent '[JSON] (Headers '[ Header "Set-Cookie" SetCookie
 --                                         , Header "Set-Cookie" SetCookie]

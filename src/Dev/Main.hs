@@ -109,6 +109,7 @@ oauthServer
 type DevApi auths =  MyApi
                :<|> OAuthAPI
                :<|> "login" :> LoginRoute
+               :<|> "signup" :> SignupRoute
                :<|> "authtest" :> TestAuthRoute auths
                
 
@@ -128,6 +129,7 @@ devServer
   server pool
   :<|> oauthServer pool githuboa bitbucketoa
   :<|> loginRoute cs jwts pool
+  :<|> signupRoute cs jwts pool
   :<|> testAuthRoute
     
 

@@ -60,7 +60,9 @@ GET :host/github/authorized?code=hooray
 # 
 
 #
-GET :host/
+GET :host/authtest
+:content
+Authorization: Bearer 
 
 # Login
 POST :host/login
@@ -77,5 +79,3 @@ POST :host/signup
 "email": "a",
 "password": "a"
 }
-#
-decode "{\"email\": \"hi\", \"password\": \"a\"}" :: Maybe ClearCredentials
