@@ -105,6 +105,8 @@ data OAuthCred =
   | OBb BbCredential
   | ONone
 
+
+-- TODO: instead of passing in text, pass in OAuth
 providerMap :: Text -> UserId -> Text -> OAuthCred
 providerMap "github" i t = OGh (GhCredential i t)
 providerMap "bitbucket" i t = OBb (BbCredential i t)

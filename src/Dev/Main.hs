@@ -2,8 +2,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
 {-
+
 # Dev.Main
-    A dynamic place to futz around with things
+
+BAD IDEA GET RID OF THIS EXTRA MAIN
+    
 -}
 
 {-# LANGUAGE DataKinds #-} -- type-level strings
@@ -16,11 +19,13 @@
 
 module Dev.Main where
 
+import Data.Aeson
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
 import Servant
 import Servant.Auth.Server
 import Network.Wai.Handler.Warp
+import Network.HTTP.Simple hiding (Proxy)
 import Database.Persist.Postgresql
 import Database.Persist.TH
 import Control.Monad.Trans.Except
@@ -93,6 +98,29 @@ callbackFn pool oa mcode memail = do
 
               return token
 
+testGhTokenRoute :: ConnectionPool -> AuthResult User -> Handler [Object]
+testGhTokenRoute pool (Authenticated (User email)) = do
+  mghcred <- runDb pool $ get (GhCredentialKey (UserKey email))
+  case mghcred of
+    Nothing -> throwError $ err400 {errBody="not authd with provider yet"}
+    Just (GhCredential _ token) -> do
+      request <- parseRequest "GET https://api.github.com/user/repos"
+      let request' = 
+                addRequestHeader "Accept" "application/json"
+                $ addRequestHeader "Accept" "application/vnd.github.v3+json"
+                $ addRequestHeader "User-Agent" "timetrack" -- name of github oauth
+                $ addRequestHeader "Authorization" (cs $ "token " ++ cs token)
+                $ request
+      response <- httpJSONEither request'
+      case getResponseBody response of
+        Left e -> throwError $ err400 {errBody = cs . show $ e}
+        Right body -> return body
+
+testGhTokenRoute _ _ = throwError err400 { errBody = "not authenticated" }
+
+type GhReposRoute = Get '[JSON] [Object]
+type TestGhTokenRoute auths = Auth auths User :> GhReposRoute
+
 
 --------------------
 -- Generic OAuthAPI
@@ -127,6 +155,7 @@ type DevApi auths =  MyApi
                :<|> "login" :> LoginRoute
                :<|> "signup" :> SignupRoute
                :<|> "authtest" :> TestAuthRoute auths
+               :<|> "ghtest" :> TestGhTokenRoute auths
                
 devServer :: ConnectionPool
           -> CookieSettings
@@ -146,6 +175,7 @@ devServer
   :<|> loginRoute cs jwts pool
   :<|> signupRoute cs jwts pool
   :<|> testAuthRoute
+  :<|> testGhTokenRoute pool
     
 
 devApi :: Proxy (DevApi '[JWT, Cookie])

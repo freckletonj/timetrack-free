@@ -78,3 +78,8 @@ POST :host/signup
 "email": "aasdfjlk345jlkj",
 "password": "a"
 }
+
+# Gh Repos
+GET :host/ghtest
+:content
+:auth
