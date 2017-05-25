@@ -2,8 +2,9 @@
 
 # Running
 
+```bash
 ssh-keygen -t rsa -b 4096 -N "" -f .secret/timetrack.key
-
+```
 
 # General Todo
 
@@ -30,18 +31,31 @@ ssh-keygen -t rsa -b 4096 -N "" -f .secret/timetrack.key
 
 # Tickets
 
-[ ] 1 - user can log in through oauth and get a list of their repos
+last seen ticket # : 12
 
-[ ] 2 - user's oauth credentials are saved and api can use them ad lib
+
+##############################
+
+[ ] 6 - refactor, rearchitect, implement code quality stuff,
+cyclomatic complexity?, stylish haskell, linter...
+
+- try a cyclomatic complexity lib
+- draw out dependencies
+- restructure dirs/files/modules
+- learn stylish and/or a linter, possibly implement into workflow
+
+##############################
+
+
+[X] 1 - user can log in through oauth and get a list of their repos
+
+[X] 2 - user's oauth credentials are saved and api can use them ad lib
 on user's behalf
 
-[ ] 3 - users sign in's can be persisted and authenticated through
+[X] 3 - users sign in's can be persisted and authenticated through
 sessions
+
 - http://hackage.haskell.org/package/cryptonite-0.23/docs/Crypto-KDF-BCrypt.html
-
-
------ ^^^^ Above are being worked on in this ticket
-
 
 [ ] 4 - user workflows can be declared and tested
 automatically. Perhaps just a simple requests lib, and actually run it
@@ -51,10 +65,8 @@ be torn down/remade each test, prob not too expensively.
 [ ] 5 - move tickets to markdown, look into using an org-mode kanban
 for task tracking? raw org-mode?
 
-[ ] 6 - implement code quality stuff, cyclomatic complexity, stylish
-haskell, linter...
-
 [ ] 7 - implement testing.
+
 https://github.com/haskell-servant/servant-quickcheck?
 
 [ ] 8 - figure out the right way to document stuff, perhaps with
@@ -62,12 +74,15 @@ motivation from Snoyman?
 
 [ ] 9 - consider haskell propellor for config, docker, passwords, ssh
 keys, build?, CI?, etc.
+
 - https://abailly.github.io/posts/cm-infra-2.html
 - https://propellor.branchable.com/haskell_newbie/
 
 [ ] 10 - logging
 
 [ ] 11 - users can only see things they're auth'd and auth'd for
+
+[ ] 12 - wai-extra pretty printer
 
 
 # Clean Code / Refactoring
@@ -80,8 +95,10 @@ keys, build?, CI?, etc.
 # Not to be Forgotten
 
 - Persistent UUID
+
 http://michaelxavier.net/posts/2015-04-14-Adding-a-UUID-Column-to-a-Persistent-Table.html
-```
+
+```haskell
 import Data.UUID
 UUID sqltype=uuid default=uuid_generate_v4()
 ```
