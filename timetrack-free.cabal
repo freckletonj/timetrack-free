@@ -41,8 +41,8 @@ library
                      , safe-exceptions
                      , servant
                      , servant-auth
-                     , servant-auth-client
-                     , servant-auth-docs
+                     --, servant-auth-client
+                     --, servant-auth-docs
                      , servant-auth-server
                      , servant-server
                      , string-conversions

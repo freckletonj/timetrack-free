@@ -32,120 +32,207 @@ import qualified Data.Foldable as F
 import Data.String.Conversions (cs)
 import Data.Text (Text)
 import Data.Text.Lens
-import Database.Persist.Postgresql
-import Database.Persist.TH
 import Debug.Trace 
 import qualified Network.Wai.Handler.Warp
 import PersistentType
 import Servant hiding (throw)
+import Servant.Auth.Server
 import Control.Exception.Safe hiding (throw, Handler)
-import Type
-
-import Util.OAuth2
+import Crypto.JOSE.JWK (JWK, fromRSA)
+import Data.X509 (PrivKey (..))
+import Data.X509.File (readKeyFile)
+import Network.HTTP.Simple hiding (Proxy)
+import Database.Persist
+import Database.Persist.Sql
+import Database.Persist.Types
 
 import qualified Data.Configurator as C
 import qualified Data.Configurator.Types as CT
 import qualified Data.HashMap.Lazy as HM
 
+import Type
+import Db
+import Util.OAuth2
+import Authenticate
+import Util.OAuth2.Servant
 
-type DN = Header "dn" Text -- todo: replace DN header with some sort
-                           -- of appropriate session header
-
-type CRUD a = DN :> (ReqBody '[JSON] a :> Post '[JSON] (Key a) -- create
-                     :<|> Capture "id" (Key a) :> Get '[JSON] a -- read
-                     :<|> Capture "id" (Key a)
-                      :> ReqBody '[JSON] a :> Put '[JSON] NoContent -- update
-                     :<|> Capture "id" (Key a) :> Delete '[JSON] NoContent -- delete
-                    )
-
-type Persistable val = (PersistEntityBackend val ~ SqlBackend
-                       , PersistEntity val
-                       -- , ToBackendKey SqlBackend val -- TODO: why
-                       -- did ppl include this?
-                       )
-runDb :: (MonadIO m) => ConnectionPool -> SqlPersistT IO a -> m a
-runDb pool query = liftIO $ runSqlPool query pool
-
-runCrud :: Persistable a
-  => ConnectionPool
-  -> Server (CRUD a)
-runCrud pool = (\mdn ->
-                  crudNew pool mdn
-                  :<|> crudGet pool mdn
-                  :<|> crudUpdate pool mdn
-                  :<|> crudDelete pool mdn)
-
-crudNew :: Persistable a => ConnectionPool -> Maybe Text -> a -> Handler (Key a)
-crudNew pool mdn a = do
-  newKey <- runDb pool (insert a)
-  return $  newKey
-
-crudGet :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> Handler a
-crudGet pool mdn k = do
-  mbA <- runDb pool $ get k
-  case mbA of
-    Nothing -> throwError err404
-    Just a -> return $ a -- Entity k a
-
-crudDelete :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> Handler NoContent
-crudDelete pool mdn k = do
-  runDb pool $ delete k
-  return NoContent
-
-crudUpdate :: Persistable a => ConnectionPool -> Maybe Text -> Key a -> a -> Handler NoContent
-crudUpdate pool mdn k a = do
-  exists <- runDb pool $ get k
-  case exists of
-    Nothing -> throwError err404
-    Just _ -> runDb pool $ replace k a >> return NoContent
-
-
---------------------------------------------------
--- Database
-
-data Env = Development
-         | Testing
-         | Production
-         deriving (Read, Eq, Show)
-
-connStr :: MonadIO m => CT.Config -> m ConnectionString
-connStr cfg = do
-  host <- f "host"
-  dbname <- f "dbname"
-  port <- f "port"
-  user <- f "user"
-  pass <- f "pass"
-  return . cs $ concat ["host=", host
-                       , " dbname=", dbname
-                       , " port=", port
-                       , " user=", user
-                       , " password=", pass]
-    where
-      f = liftIO . C.require cfg . cs . ("postgres." ++)
-
-makePool :: Env -> CT.Config -> IO ConnectionPool
-makePool Development cfg = do
-  c <- (connStr cfg)
-  runStdoutLoggingT $ createPostgresqlPool c 2
-  
-makePool Testing cfg = undefined
-makePool Production cfg = undefined
 
 
 --------------------------------------------------
 -- Serving the API
 
-type MyApi = "user" :> CRUD User
-       :<|> "clock"   :> CRUD Clock
-       :<|> "session" :> CRUD Session
-       :<|> "ghcredential" :> CRUD GhCredential
+type CrudApi = "user" :> CRUD User
+               :<|> "clock"   :> CRUD Clock
+               :<|> "session" :> CRUD Session
+               :<|> "ghcredential" :> CRUD GhCredential
 
-myApi :: Proxy MyApi
-myApi = Proxy
+crudApi :: Proxy CrudApi
+crudApi = Proxy
 
-server :: ConnectionPool -> ServerT MyApi (ExceptT ServantErr IO) -- Server MyApi
+server :: ConnectionPool -> ServerT CrudApi (ExceptT ServantErr IO)
 server pool = runCrud pool -- user
              :<|> runCrud pool -- clock
              :<|> runCrud pool -- session
              :<|> runCrud pool -- ghcredential
 
+
+--------------------------------------------------
+-- Security API
+
+type SecurityApi auths =  CrudApi
+               :<|> OAuthAPI auths
+               :<|> "login" :> LoginRoute
+               :<|> "signup" :> SignupRoute
+               :<|> "authtest" :> TestAuthRoute auths
+               :<|> "ghtest" :> TestGhTokenRoute auths
+               
+securityServer :: ConnectionPool
+          -> CookieSettings
+          -> JWTSettings
+          -> OAuth2
+          -> OAuth2
+          -> ServerT (SecurityApi '[JWT, Cookie]) (ExceptT ServantErr IO)
+securityServer
+  pool
+  cs
+  jwts
+  githuboa
+  bitbucketoa
+  =
+  server pool
+  :<|> oauthServer pool githuboa bitbucketoa
+  :<|> loginRoute cs jwts pool
+  :<|> signupRoute cs jwts pool
+  :<|> testAuthRoute
+  :<|> ghRepoList pool
+    
+
+devProxy :: Proxy (SecurityApi '[JWT, Cookie])
+devProxy = Proxy
+
+
+--------------------------------------------------
+
+
+-- TODO: "security server" needs to be broken apart
+mainApi = devProxy
+mainServer = securityServer
+
+--------------------------------------------------
+
+-- | Persist user's OAuth token
+insertProvider :: (MonadIO m, MonadError ServantErr m)
+  => ConnectionPool -> OAuthCred -> m ()
+insertProvider pool (OGh x) = runDb pool $ insert x >> return ()
+insertProvider pool (OBb x) = runDb pool $ insert x >> return ()
+insertProvider _ ONone = throwError err400
+
+-- | Return a redirect to the OAuth provider's required URI
+authorizeFn :: OAuth2
+            -> AuthResult User
+            -> Handler String
+authorizeFn oa = (\auser -> case auser of
+                     (Authenticated (User email)) ->
+                       throwError err301 -- redirect (not error)
+                       { errHeaders = [("Location",
+                                         cs $ authUri oa
+                                         ++ "?email="
+                                         ++ cs email)] }
+                     _ -> throwError err400 -- TODO: which error
+                                            -- appropriate?
+                 )
+
+
+-- | Accept a temporary code from a provider, exchange it for a token,
+-- persist it, and redirect the api consumer to the appropriate page.
+-- TODO: security risk with black hats calling this endpoint?
+callbackFn :: ConnectionPool
+           -> OAuth2
+           -> Maybe String -- ^ temporary code
+           -> Maybe String -- ^ email
+           -> Handler String
+callbackFn pool oa mcode memail = do
+  case mcode of
+    Nothing -> return "no code"
+    Just code ->
+      case memail of
+        Nothing -> return "no email"
+        Just email -> do
+
+          -- exchange temporary code for token
+          mtoken <- liftIO $ getAccessToken oa code
+          case mtoken of
+            Left error -> return error
+            Right token -> do
+              let providerName = oauthName oa
+                  providerCons = providerMap $ cs providerName
+
+              -- persist user's token
+              (insertProvider pool
+                (providerCons
+                  (UserKey $ cs email)
+                  (cs token)))
+
+              return token
+
+-- | A List of auth'd User's repos on Github
+ghRepoList :: ConnectionPool -> AuthResult User -> Handler [Object]
+ghRepoList pool (Authenticated (User email)) = do
+  mghcred <- runDb pool $ get (GhCredentialKey (UserKey email))
+  case mghcred of
+    Nothing -> throwError $ err400 {errBody="not authd with provider yet"}
+    Just (GhCredential _ token) -> do
+      request <- parseRequest "GET https://api.github.com/user/repos"
+      let request' = 
+                addRequestHeader "Accept" "application/json"
+                $ addRequestHeader "Accept" "application/vnd.github.v3+json"
+                $ addRequestHeader "User-Agent" "timetrack" -- name of github oauth
+                $ addRequestHeader "Authorization" (cs $ "token " ++ cs token)
+                $ request
+      response <- httpJSONEither request'
+      case getResponseBody response of
+        Left e -> throwError $ err400 {errBody = cs . show $ e}
+        Right body -> return body
+ghRepoList _ _ = throwError err400 { errBody = "not authenticated" }
+
+type GhReposRoute = Get '[JSON] [Object]
+type TestGhTokenRoute auths = Auth auths User :> GhReposRoute
+
+
+--------------------
+-- OAuth Providers
+
+type OAuthAPI auths = "github" :> ProviderAPI auths
+                :<|> "bitbucket" :> ProviderAPI auths
+
+oauthProxy :: Proxy (OAuthAPI auths)
+oauthProxy = Proxy
+
+oauthServer :: ConnectionPool
+            -> OAuth2 -- github
+            -> OAuth2 -- bitbucket
+            -> Server (OAuthAPI auths)
+oauthServer
+  pool
+  githuboa
+  bitbucketoa
+  = -- Github
+  (authorize (authorizeFn githuboa)
+    :<|> callback (callbackFn pool githuboa))
+
+  -- Bitbucket
+  :<|> (authorize (authorizeFn bitbucketoa)
+        :<|> callback (callbackFn pool bitbucketoa))
+
+
+--------------------
+-- Keys
+
+-- | Load a JSON-signing key from a file
+mkJWK :: FilePath -> IO JWK
+mkJWK keypath = do
+  maybePk <- readKeyFile keypath
+  case  maybePk of
+    [] -> error $ "no valid keys at: " ++ keypath
+    (PrivKeyRSA pk):_ -> pure $ fromRSA pk
+    _ -> error "not a valid RSA key"

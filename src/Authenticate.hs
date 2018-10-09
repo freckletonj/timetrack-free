@@ -1,41 +1,42 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE Unsafe #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE Unsafe            #-}
 
 module Authenticate where
 
-import Crypto.KDF.BCrypt (hashPassword, validatePassword)
-import qualified Crypto.JOSE as Jose
-import Crypto.JWT (NumericDate (NumericDate), _claimExp, createJWSJWT)
+import qualified Crypto.JOSE             as Jose
+import           Crypto.JWT              (NumericDate (NumericDate),
+                                          createJWSJWT, _claimExp)
+import           Crypto.KDF.BCrypt       (hashPassword, validatePassword)
 
-import Data.Aeson
-import Data.Aeson.TH
-import Data.Time              (UTCTime, getCurrentTime, addUTCTime)
-import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
+import           Data.Aeson
+import           Data.Aeson.TH
+import           Data.Time               (UTCTime, addUTCTime, getCurrentTime)
+import           Data.Time.Clock.POSIX   (posixSecondsToUTCTime)
 
-import GHC.Generics (Generic)
+import           GHC.Generics            (Generic)
 
-import Servant
-import Servant.Auth.Server hiding (makeJWT)
+import           Servant
+import           Servant.Auth.Server     hiding (makeJWT)
 
-import Control.Monad.IO.Class
-import Control.Monad.Except
-import Data.Text (Text)
-import Data.String.Conversions (cs)
-import Database.Persist
-import Database.Persist.Sql
-import Database.Persist.Types
+import           Control.Monad.Except
+import           Control.Monad.IO.Class
+import           Data.String.Conversions (cs)
+import           Data.Text               (Text)
+import           Database.Persist
+import           Database.Persist.Sql
+import           Database.Persist.Types
 
-import Crypto.KDF.BCrypt (hashPassword, validatePassword)
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy as BL
+import           Crypto.KDF.BCrypt       (hashPassword, validatePassword)
+import qualified Data.ByteString.Char8   as B
+import qualified Data.ByteString.Lazy    as BL
 
-import PersistentType
-import Api
+import           Db
+import           PersistentType
 
 -- TODO: belongs in config
 hashIterations = 12         -- 15 =~ 6 sec
@@ -47,14 +48,14 @@ tokenDuration = 60*60*24*30 -- one month, TODO: make revokable,
 ----------
 -- Data-Model-Specific Implementation
 
-data ClearCredentials = ClearCredentials { ccEmail :: Key Password
+data ClearCredentials = ClearCredentials { ccEmail     :: Key Password
                                          , ccClearPass :: Text}
 
 instance FromJSON ClearCredentials where
-  parseJSON (Object v) = ClearCredentials 
+  parseJSON (Object v) = ClearCredentials
                          <$> v .: "email"
                          <*> v .: "password"
-  
+
 authenticate :: ConnectionPool -> ClearCredentials -> Handler (Maybe User)
 authenticate pool (ClearCredentials email clearpass) = do
     mPassword <- runDb pool $ get $ email
@@ -74,10 +75,11 @@ type TestAuthRoute auths = Auth auths User :> TestProtected
 
 testAuthRoute :: AuthResult User -> Server TestProtected
 testAuthRoute (Authenticated u) = return $ Just u
-testAuthRoute _ = return Nothing
+testAuthRoute _                 = return Nothing
 
 instance FromJWT User where
 instance ToJWT User where
+
 
 ----------
 
@@ -97,8 +99,8 @@ makeJWT value cfg expiry = runExceptT $ do
   Jose.encodeCompact ejwt
   where addExp claims = case expiry of
           Nothing -> claims
-          Just e -> claims { _claimExp = Just $ NumericDate e }
-          
+          Just e  -> claims { _claimExp = Just $ NumericDate e }
+
 loginRoute :: CookieSettings
   -> JWTSettings
   -> ConnectionPool
@@ -113,9 +115,9 @@ loginRoute cookieSettings jwtSettings pool cc = do
       let expiry = addUTCTime tokenDuration now
       etoken <- liftIO $ makeJWT u jwtSettings $ Just expiry
       case etoken of
-        Left e -> return $ show e
+        Left e  -> return $ show e
         Right v -> return . B.unpack . BL.toStrict $ v
-  
+
 ----------
 
 type SignupRoute = ReqBody '[JSON] ClearCredentials
@@ -135,4 +137,4 @@ signupRoute cookieSettings
   u@(UserKey e) <- runDb pool $ insert (User email)
   p <- runDb pool $ insert (Password u (cs . B.unpack $ hash))
   return (User e)
- 
+

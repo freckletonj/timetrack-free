@@ -1,15 +1,15 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators     #-}
 
 module Util.OAuth2.Servant where
 
-import Data.Text
-import PersistentType
-import Servant
-import Servant.Auth.Server
-import Util.Misc
-import Api (DN)
+import           Data.Text
+import           PersistentType
+import           Servant
+import           Servant.Auth.Server
+import           Util.Misc
+
 
 {-
 
@@ -51,4 +51,4 @@ callback f = (\code email -> f code email >>= return)
 -- implemented OAuth2 properly.
 
 type ProviderAPI auths = "authorize" :>  Authorize auths String
-                   :<|> "authorized" :> Callback String
+                         :<|> "authorized" :> Callback String

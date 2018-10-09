@@ -1,5 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies    #-}
 
 
 -- TODO: This made a `state/` dir that is prob safe to delete IF you
@@ -7,12 +7,12 @@
 
 module Acid where
 
-import Data.Acid
-import Data.Typeable
-import qualified Data.IntMap as IntMap
-import Control.Monad.Reader
-import Control.Monad.State
-import Data.SafeCopy
+import           Control.Monad.Reader
+import           Control.Monad.State
+import           Data.Acid
+import qualified Data.IntMap          as IntMap
+import           Data.SafeCopy
+import           Data.Typeable
 
 data Person = Person {name::String, favNum::Int}
   deriving (Show, Typeable)
@@ -21,7 +21,7 @@ data Db = Db { allPersons :: IntMap.IntMap Person }
   deriving (Typeable)
 
 
--- 
+--
 everyone :: Query Db [Person]
 everyone = IntMap.elems . allPersons <$> ask
 
@@ -31,7 +31,7 @@ addPerson p = modify go
     go (Db d) = Db $
       case IntMap.maxViewWithKey d of
         Just ((max, _), _) -> IntMap.insert (max+1) p d
-        Nothing -> IntMap.singleton 1 p
+        Nothing            -> IntMap.singleton 1 p
 
 deriveSafeCopy 0 'base ''Person
 deriveSafeCopy 0 'base ''Db

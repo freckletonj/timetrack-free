@@ -40,9 +40,61 @@ last seen ticket # : 12
 cyclomatic complexity?, stylish haskell, linter...
 
 - try a cyclomatic complexity lib
+- rubik/argon
+
+`stack exec -- argon -m2 src`
+
+```
+src/Api.hs
+        127:1 makePool - A (3)
+        84:1 crudGet - A (2)
+        96:1 crudUpdate - A (2)
+src/Type.hs
+        77:3 fromPersistValue - A (3)
+        66:3 parseJSON - A (2)
+src/Authenticate.hs
+        59:1 authenticate - A (3)
+        107:1 loginRoute - A (3)
+        76:1 testAuthRoute - A (2)
+        93:1 makeJWT - A (2)
+        98:9 addExp - A (2)
+src/Util/OAuth2.hs
+        82:1 parseResAccessToken - A (3)
+        111:1 providerMap - A (3)
+        65:1 getAccessToken - A (2)
+src/Sand/Acid.hs
+        29:1 addPerson - A (2)
+        31:5 go - A (2)
+src/Dev/Main.hs
+        77:1 callbackFn - A (4)
+        102:1 testGhTokenRoute - A (4)
+        49:1 insertProvider - A (3)
+        185:1 mkJWK - A (3)
+        57:1 authorizeFn - A (2)
+```
+
+- homplexity
 - draw out dependencies
 - restructure dirs/files/modules
 - learn stylish and/or a linter, possibly implement into workflow
+- study
+  - myfreeweb/magicbane (servant framework)
+  - https://github.com/jkachmar/composite-realworld
+  - https://github.com/graninas/Andromeda/
+  - xmonad?
+
+find src -name '*.hs' | xargs graphmod -q | xdot -
+find src -name '*.hs' | xargs graphmod -q --no-cluster | xdot -
+
+
+- SourceGraph: fork, accept pull, install
+
+https://github.com/ivan-m/SourceGraph/pull/2
+
+- NOTES: undo these changes
+- add argon, and homplexity to cabal
+- add deps to stack.yaml
+- downgraded ghc
 
 ##############################
 
@@ -85,13 +137,28 @@ keys, build?, CI?, etc.
 [ ] 12 - wai-extra pretty printer
 
 
+# Workflow
+
+- **branch names** = `<repo>-<ticket #>-<branch description>`
+- **commit titles** = `<repo>-<ticket #>: <commit description>`
+
 # Clean Code / Refactoring
 
 - check
   - `-- TODO`
   - `error`
   - `return` -> `pure` ?
-
+  
+- visualization
+  - graphmod + xdot
+    ```
+    stack install graphmod
+    sudo apt-get install xdot
+    find src -name '*.hs' | xargs graphmod -q | xdot -
+    find src -name '*.hs' | xargs graphmod -q --no-cluster | xdot -
+    ```
+    
+    
 # Not to be Forgotten
 
 - Persistent UUID

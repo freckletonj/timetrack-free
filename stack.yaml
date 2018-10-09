@@ -3,8 +3,8 @@ extra-package-dbs: []
 packages:
 - '.'
 extra-deps:
+- dotgen-0.4.2
+- graphmod-1.4
 - servant-auth-0.2.7.0
-- servant-auth-client-0.2.7.0
-- servant-auth-docs-0.2.7.0
 - servant-auth-server-0.2.7.0
-resolver: lts-8.12
+resolver: lts-8.15
